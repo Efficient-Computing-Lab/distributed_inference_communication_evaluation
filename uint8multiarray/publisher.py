@@ -25,24 +25,26 @@ class BigPublisher(Node):
     def send(self):
         self.msg_id += 1
         publish_time = time.time()
-
         self.get_logger().info(f"🚀 Sending message #{self.msg_id}")
 
+        # 1. Create the 150MB float32 array
         arr = np.random.rand(self.dim, self.dim).astype(np.float32)
-        arr = np.ascontiguousarray(arr, dtype=np.float32)
+
+        # 2. Convert 4-byte floats into a long sequence of 1-byte integers
+        # .tobytes() effectively "flattens" the memory for UInt8
         raw_bytes = arr.tobytes()
 
-        # ✅ FIXED STRUCT FORMAT
+        # 3. Create the 12-byte header
         header = struct.pack('=Id', self.msg_id, publish_time)
 
+        # 4. Combine and publish
         msg = UInt8MultiArray()
         msg.data = header + raw_bytes
-
         self.pub.publish(msg)
 
+        # Log to CSV
         with open(self.csv_file, 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([self.msg_id, publish_time, 'UInt8MultiArray'])
+            csv.writer(f).writerow([self.msg_id, publish_time, 'UInt8MultiArray'])
 
 
 def main():

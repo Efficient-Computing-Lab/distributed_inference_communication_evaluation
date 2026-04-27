@@ -27,30 +27,29 @@ class BigSubscriber(Node):
     def callback(self, msg):
         receive_time = time.time()
 
+        # Convert ROS data to standard Python bytes
         data_bytes = bytes(msg.data)
 
         try:
+            # 1. Extract the 12-byte header
             msg_id, publish_time = struct.unpack_from('=Id', data_bytes, 0)
 
-            latency = receive_time - publish_time
-
-            self.get_logger().info(
-                f"📥 Msg #{msg_id} | Latency: {latency:.6f}s"
-            )
-
+            # 2. Slice the remaining bytes (the payload)
             payload = data_bytes[12:]
-            arr = np.frombuffer(memoryview(payload), dtype=np.float32)
+
+            # 3. Use frombuffer to "re-interpret" bytes as float32
+            # We then reshape it back to the original square dimensions
+            arr = np.frombuffer(payload, dtype=np.float32).reshape(6125, 6125)
+
+            # Performance check (optional)
             _ = arr.mean()
 
+            latency = receive_time - publish_time
+            self.get_logger().info(f"📥 Msg #{msg_id} | Latency: {latency:.6f}s")
+
+            # Log to CSV
             with open(self.csv_file, 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    msg_id,
-                    publish_time,
-                    receive_time,
-                    latency,
-                    'UInt8MultiArray'
-                ])
+                csv.writer(f).writerow([msg_id, publish_time, receive_time, latency, 'UInt8MultiArray'])
 
         except Exception as e:
             self.get_logger().error(f"Failed to unpack: {e}")

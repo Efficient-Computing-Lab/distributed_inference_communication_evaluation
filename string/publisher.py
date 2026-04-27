@@ -30,34 +30,27 @@ class BigPublisher(Node):
     def send(self):
         self.msg_id += 1
         publish_time = time.time()
+        self.get_logger().info(f"🚀 Sending String(Base64) msg #{self.msg_id}")
 
-        self.get_logger().info(f"🚀 Sending msg #{self.msg_id}")
-
-        # Generate data
+        # 1. Create the 150MB float32 array
         arr = np.random.rand(self.dim, self.dim).astype(np.float32)
-        raw_bytes = arr.tobytes()
 
-        # SAME HEADER AS UInt8MultiArray VERSION
+        # 2. Convert to raw bytes + 12-byte header
         header = struct.pack('=Id', self.msg_id, publish_time)
+        binary_payload = header + arr.tobytes()
 
-        # Combine header + payload
-        binary_msg = header + raw_bytes
+        # 3. THE "STRING TAX": Encode binary to Base64 text
+        # This turns 150MB of binary into ~200MB of ASCII text
+        encoded_str = base64.b64encode(binary_payload).decode('utf-8')
 
-        # Base64 encode
-        encoded = base64.b64encode(binary_msg).decode('utf-8')
-
+        # 4. Publish as a standard ROS String
         msg = String()
-        msg.data = encoded
-
+        msg.data = encoded_str
         self.pub.publish(msg)
 
-        # Log publisher CSV
+        # Log to CSV
         with open(self.csv_file, "a", newline="") as f:
-            csv.writer(f).writerow([
-                self.msg_id,
-                publish_time,
-                "String(Base64)"
-            ])
+            csv.writer(f).writerow([self.msg_id, publish_time, "String(Base64)"])
 
 
 def main():

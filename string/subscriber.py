@@ -35,33 +35,23 @@ class BigSubscriber(Node):
     def callback(self, msg):
         receive_time = time.time()
 
-        # Decode Base64 → binary
-        binary = base64.b64decode(msg.data)
+        # 1. THE "DECODING TAX": Convert text back to binary
+        # This is the line that adds ~0.4s of latency
+        binary_data = base64.b64decode(msg.data)
 
-        # Extract header (SAME AS UInt8MultiArray VERSION)
-        msg_id, publish_time = struct.unpack('=Id', binary[:12])
-        payload = binary[12:]
+        # 2. Extract the 12-byte header from the decoded binary
+        msg_id, publish_time = struct.unpack_from('=Id', binary_data, 0)
 
-        # Latency
+        # 3. Extract and reshape the payload
+        payload_bytes = binary_data[12:]
+        arr = np.frombuffer(payload_bytes, dtype=np.float32).reshape(6125, 6125)
+
         latency = receive_time - publish_time
+        self.get_logger().info(f"📥 Msg #{msg_id} | Latency: {latency:.6f}s")
 
-        # Process payload
-        arr = np.frombuffer(payload, dtype=np.float32)
-        _ = arr.mean()
-
-        self.get_logger().info(
-            f"📥 Msg #{msg_id} | latency: {latency:.6f} sec"
-        )
-
-        # Log subscriber CSV
+        # Log to CSV
         with open(self.csv_file, "a", newline="") as f:
-            csv.writer(f).writerow([
-                msg_id,
-                publish_time,
-                receive_time,
-                latency,
-                "String(Base64)"
-            ])
+            csv.writer(f).writerow([msg_id, publish_time, receive_time, latency, "String(Base64)"])
 
 
 def main():
