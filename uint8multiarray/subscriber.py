@@ -6,10 +6,11 @@ import time
 import struct
 import csv
 import os
-
+import argparse
+import sys
 
 class BigSubscriber(Node):
-    def __init__(self):
+    def __init__(self, folder_path):
         super().__init__('big_subscriber')
         self.sub = self.create_subscription(
             UInt8MultiArray,
@@ -18,7 +19,11 @@ class BigSubscriber(Node):
             10
         )
 
-        self.csv_file = 'same_machine/subscriber_log.csv'
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+
+        self.csv_file = os.path.join(folder_path, 'subscriber_log.csv')
+
         if not os.path.exists(self.csv_file):
             with open(self.csv_file, 'w', newline='') as f:
                 writer = csv.writer(f)
@@ -26,22 +31,15 @@ class BigSubscriber(Node):
 
     def callback(self, msg):
         receive_time = time.time()
-
-        # Convert ROS data to standard Python bytes
         data_bytes = bytes(msg.data)
 
         try:
             # 1. Extract the 12-byte header
             msg_id, publish_time = struct.unpack_from('=Id', data_bytes, 0)
 
-            # 2. Slice the remaining bytes (the payload)
+            # 2. Slice payload and reconstruct array
             payload = data_bytes[12:]
-
-            # 3. Use frombuffer to "re-interpret" bytes as float32
-            # We then reshape it back to the original square dimensions
             arr = np.frombuffer(payload, dtype=np.float32).reshape(6125, 6125)
-
-            # Performance check (optional)
             _ = arr.mean()
 
             latency = receive_time - publish_time
@@ -55,15 +53,18 @@ class BigSubscriber(Node):
             self.get_logger().error(f"Failed to unpack: {e}")
 
 def main():
-    rclpy.init()
-    node = BigSubscriber()
+    parser = argparse.ArgumentParser(description='ROS 2 Binary Subscriber')
+    parser.add_argument('--folder', type=str, default='same_machine', help='Folder name')
+    args, unknown = parser.parse_known_args()
+
+    rclpy.init(args=sys.argv)
+    node = BigSubscriber(args.folder)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
