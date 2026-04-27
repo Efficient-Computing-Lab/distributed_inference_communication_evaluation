@@ -16,7 +16,7 @@ class BigPublisher(Node):
         self.dim = 6125
         self.msg_id = 0
 
-        self.csv_file = 'publisher_log.csv'
+        self.csv_file = 'same_machine/publisher_log.csv'
         if not os.path.exists(self.csv_file):
             with open(self.csv_file, 'w', newline='') as f:
                 writer = csv.writer(f)

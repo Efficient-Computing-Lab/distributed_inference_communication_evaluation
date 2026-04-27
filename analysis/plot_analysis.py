@@ -12,8 +12,8 @@ os.makedirs(out_dir, exist_ok=True)
 # =========================
 # LOAD DATA
 # =========================
-uint8_file = "../uint8multiarray/subscriber_log.csv"
-string_file = "../string/subscriber_log.csv"
+uint8_file = "../uint8multiarray/same_machine/subscriber_log.csv"
+string_file = "../string/same_machine/subscriber_log.csv"
 
 uint8 = pd.read_csv(uint8_file)
 string = pd.read_csv(string_file)

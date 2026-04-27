@@ -21,7 +21,7 @@ class BigSubscriber(Node):
         )
 
         # CSV setup
-        self.csv_file = "subscriber_log.csv"
+        self.csv_file = "same_machine/subscriber_log.csv"
         if not os.path.exists(self.csv_file):
             with open(self.csv_file, "w", newline="") as f:
                 csv.writer(f).writerow([
