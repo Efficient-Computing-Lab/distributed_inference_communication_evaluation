@@ -1,7 +1,7 @@
 # ROS 2 Latency Benchmark: UInt8MultiArray vs. String Base 64 Encoding
 
 This project benchmarks the performance of two different data transmission methods in ROS 2 when handling large payloads (150 MB).
-We consider the data to be a numpy array.
+We consider the data to be a numpy array. The experiment setup is at the moment to run both publisher and subscriber on the same machine.
 
 ## Comparison Overview
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure the "Latency" as the time it takes for a message to travel from the Publisher to the Subscriber.
