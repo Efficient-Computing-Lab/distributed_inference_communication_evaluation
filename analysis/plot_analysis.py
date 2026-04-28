@@ -6,14 +6,14 @@ import os
 # =========================
 # OUTPUT DIRECTORY
 # =========================
-out_dir = ("plots/diff_machine")
+out_dir = ("plots/x86_machines")
 os.makedirs(out_dir, exist_ok=True)
 
 # =========================
 # LOAD DATA
 # =========================
-uint8_file = "../uint8multiarray/diff_machine/subscriber_log.csv"
-string_file = "../string/diff_machine/subscriber_log.csv"
+uint8_file = "../uint8multiarray/x86_machines/subscriber_log.csv"
+string_file = "../string/x86_machines/subscriber_log.csv"
 
 uint8 = pd.read_csv(uint8_file)
 string = pd.read_csv(string_file)
