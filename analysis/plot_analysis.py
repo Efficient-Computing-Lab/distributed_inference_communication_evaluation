@@ -6,14 +6,14 @@ import os
 # =========================
 # OUTPUT DIRECTORY
 # =========================
-out_dir = "plots"
+out_dir = ("plots/diff_machine")
 os.makedirs(out_dir, exist_ok=True)
 
 # =========================
 # LOAD DATA
 # =========================
-uint8_file = "../uint8multiarray/same_machine/subscriber_log.csv"
-string_file = "../string/same_machine/subscriber_log.csv"
+uint8_file = "../uint8multiarray/diff_machine/subscriber_log.csv"
+string_file = "../string/diff_machine/subscriber_log.csv"
 
 uint8 = pd.read_csv(uint8_file)
 string = pd.read_csv(string_file)
@@ -28,8 +28,8 @@ string["latency_sec"] = pd.to_numeric(string["latency_sec"], errors="coerce")
 # CRITICAL FIX: Filter outliers.
 # This removes the corrupted bits (10^306) and the 55-year bug (1.7e9).
 # We keep only realistic data between 0 and 5 seconds.
-uint8 = uint8[(uint8["latency_sec"] > 0.0001) & (uint8["latency_sec"] < 5.0)].copy()
-string = string[(string["latency_sec"] > 0.0001) & (string["latency_sec"] < 5.0)].copy()
+#uint8 = uint8[(uint8["latency_sec"] > 0.0001) & (uint8["latency_sec"] < 5.0)].copy()
+#string = string[(string["latency_sec"] > 0.0001) & (string["latency_sec"] < 5.0)].copy()
 
 # Drop any remaining NaNs
 uint8 = uint8.dropna(subset=["latency_sec"])
@@ -55,8 +55,8 @@ plt.close()
 # =========================
 plt.figure(figsize=(10, 6))
 # Using a fixed range (0.5 to 2.0) helps align the bars for better comparison
-plt.hist(uint8["latency_sec"], bins=30, alpha=0.6, label="UInt8MultiArray", range=(0.5, 2.0))
-plt.hist(string["latency_sec"], bins=30, alpha=0.6, label="String(Base64)", range=(0.5, 2.0))
+plt.hist(uint8["latency_sec"], bins=30, alpha=0.6, label="UInt8MultiArray")
+plt.hist(string["latency_sec"], bins=30, alpha=0.6, label="String(Base64)")
 plt.xlabel("Latency (sec)")
 plt.ylabel("Frequency")
 plt.title("Latency Distribution (Comparison)")
