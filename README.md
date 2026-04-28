@@ -1,4 +1,4 @@
-[# ROS 2 Latency Benchmark: UInt8MultiArray vs. String Base64
+# ROS 2 Latency Benchmark: UInt8MultiArray vs. String Base64
 
 This project benchmarks the performance of two data transmission methods in Ros2 Jazzy version when handling large payloads (**150 MB**). The data represents a `float32` NumPy array. 
 
