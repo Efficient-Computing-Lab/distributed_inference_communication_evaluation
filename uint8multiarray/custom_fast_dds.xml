@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastrtps_profiles">
+    <transport_descriptors>
+        <transport_descriptor>
+            <transport_id>huge_binary_transport</transport_id>
+            <type>UDPv4</type>
+            <maxMessageSize>65500</maxMessageSize>
+            <sendBufferSize>2147483647</sendBufferSize>
+            <receiveBufferSize>2147483647</receiveBufferSize>
+            <!-- NEW: Increase the non-blocking send to avoid script hangs -->
+            <non_blocking_send>true</non_blocking_send>
+        </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="huge_data_participant">
+        <rtps>
+            <userTransports>
+                <transport_id>huge_binary_transport</transport_id>
+            </userTransports>
+            <useBuiltinTransports>false</useBuiltinTransports>
+        </rtps>
+    </participant>
+
+    <data_writer profile_name="default_publisher" is_default_profile="true">
+        <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
+        <publishMode>
+            <kind>ASYNCHRONOUS</kind>
+        </publishMode>
+        <!-- NEW: Flow Controller to prevent flooding the network card -->
+        <throughputController>
+            <size>1000000000</size>
+            <period>10</period>
+        </throughputController>
+    </data_writer>
+
+    <data_reader profile_name="default_subscriber" is_default_profile="true">
+        <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
+        <!-- NEW: Increase the socket buffer hint for the reader specifically -->
+        <expect_inline_qos>true</expect_inline_qos>
+    </data_reader>
+</profiles>
