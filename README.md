@@ -1,4 +1,4 @@
-# ROS 2 Latency Benchmark: UInt8MultiArray vs. String Base64
+# ROS 2 Latency Benchmark: UInt8MultiArray vs. String Base64 (numpy array)
 
 This project benchmarks the performance of two data transmission methods in Ros2 Jazzy version when handling large payloads (**150 MB**). The data represents a `float32` NumPy array. 
 
@@ -163,3 +163,172 @@ Across all three experiments, UInt8MultiArray (Binary) is the mandatory choice f
 * **X86 + X86:** Even with high-performance CPUs, the Physical Bandwidth Ceiling remains the bottleneck. By keeping the payload at 150 MB instead of 200 MB, the Binary method minimizes the number of UDP packets, reducing the probability of network collisions and ensuring deterministic arrival times.
 
 Recommendation: For AI tensors, the usage UInt8MultiArray optimizes the communication. The convenience of String types is outweighed by massive latency penalties, increased thermal load, and dangerous network instability.
+
+# ROS 2 Latency Benchmark: UInt8MultiArray vs. String Base64 (list of numpy arrays)
+
+This project benchmarks the performance of two data transmission methods in Ros2 Jazzy version when handling large payloads (**~150 MB**). The data represents a list of `float32` NumPy arrays.
+The shapes of the numpy arrays are:
+
+```python
+self.shapes = [
+    (1, 120, 160, 5, 64),
+    (1, 120, 160, 5, 64, 3),
+    (1, 120, 160, 6),
+    (1, 120, 160)
+]
+```
+
+**First Experiment Setup:**
+* **Payload:** ~150 MB (list of generated `float32` numpy arrays).
+* **Environment:** Publisher and Subscriber running on the same X86 machine.
+
+**Second Experiment Setup:**
+* **Payload:** ~150 MB (list of generated `float32`  numpy arrays).
+* **Environment:** Publisher runs on X86 machine and Subscriber runs on a Jetson Nano.
+* **Network Type:** Local Network
+
+**Third Experiment Setup:**
+* **Payload:** ~150 MB (list of generated `float32` numpy arrays).
+* **Environment:** Publisher runs on X86 machine and Subscriber runs on another X86 machine.
+* **Network Type:** Local Network
+
+## First Experiment
+We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
+
+![Latency Boxplot](analysis/plots_2nd/same_machine/latency_boxplot.png)
+
+### The Results at a Glance
+| Metric | UInt8MultiArray (Binary) | String (Base64) |
+| :--- | :--- | :--- |
+| **Payload Size** | ~150 MB | ~150 MB |
+| **Transmission Size** | ~150 MB | ~200 MB (33% overhead) |
+| **Average Latency** | **2.4251 seconds** | **1.2436 seconds** |
+| **Performance Gain** | - | **~49% Faster** |
+
+---
+
+## Key Findings
+
+### 1. Speed & Efficiency: The "Packing Overhead Tax"
+In this same-machine experiment, the result is **reversed** compared to the single-array benchmark. **String (Base64)** is significantly faster because the cost of concatenating multiple separate array chunks into a single flat UInt8MultiArray payload dominates over the CPU cost of Base64 encoding on a high-performance local machine with no network bottleneck.
+
+The **UInt8MultiArray** method must pack every array in the list into one contiguous byte sequence before transmission, adding a constant multi-step serialization overhead of roughly **1.2 seconds** even without any network involvement.
+
+![Speed & Efficiency](analysis/plots_2nd/same_machine/latency_vs_msg_id.png)
+*Note: The binary method runs as a perfectly flat line at ~2.4s, while String fluctuates between 1.1s and 1.7s with no warm-up effect.*
+
+### 2. Stability & Jitter
+While String is faster in this configuration, the binary method demonstrates exceptional predictability:
+
+* **UInt8MultiArray (Blue):** Virtually zero variance. The histogram shows an ultra-narrow, tall tower tightly packed at the ~2.4s mark, indicating a completely deterministic serialization process.
+* **String (Base64) (Orange):** Faster overall, but exhibits more spread. The distribution ranges from 1.1s to 1.4s with occasional outliers reaching 1.7s, reflecting variable CPU time for Base64 encoding of the individual array chunks.
+
+![Stability](analysis/plots_2nd/same_machine/latency_histogram.png)
+
+---
+
+### Visualization Summary
+
+* **Box Plot:** The Binary box is microscopically narrow (IQR spans only ~0.05s around 2.42s), while the String box sits entirely below it spanning 1.1s to 1.4s. There is no overlap between the two methods.
+* **Histogram:** Two completely non-overlapping populations. The String group (orange) spreads between 1.1s and 1.7s, while the Binary group (blue) forms an extremely tight tower at 2.4s.
+* **CDF Plot:** Confirms full separation—100% of String messages complete before even the first Binary message arrives. String’s CDF completes by ~1.75s; Binary’s CDF does not begin until ~2.3s.
+
+![CDF](analysis/plots_2nd/same_machine/latency_cdf.png)
+
+## Second Experiment
+We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding) across an X86 publisher and a **Jetson Nano** subscriber. The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction over a local network.
+
+![Latency Boxplot](analysis/plots_2nd/diff_machines/latency_boxplot.png)
+
+### The Results at a Glance
+| Metric | UInt8MultiArray (Binary) | String (Base64) |
+| :--- | :--- | :--- |
+| **Payload Size** | ~150 MB | ~150 MB |
+| **Transmission Size** | ~150 MB | ~200 MB (33% overhead) |
+| **Average Latency** | **12.9736 seconds** | **18.7159 seconds** |
+| **Performance Gain** | **~30.7% Faster** | - |
+
+---
+
+## Key Findings
+
+### 1. Speed & Efficiency: Network Bandwidth as the Bottleneck
+Once the payload crosses a network boundary to the bandwidth-constrained Jetson Nano, the binary advantage is fully restored. By transmitting only 150 MB instead of 200 MB, **UInt8MultiArray** directly relieves the Jetson’s limited network interface and memory bus, cutting transmission time significantly.
+
+The **String (Base64)** method’s 33% size expansion becomes a decisive penalty here—forcing 50 MB of extra data through the network on every single message, while the Jetson’s limited ARM cores simultaneously struggle to decode the larger payload.
+
+![Speed & Efficiency](analysis/plots_2nd/diff_machines/latency_vs_msg_id.png)
+*Note: The binary time series shows a phase shift around message 40 (jumping from ~11s to ~14s), while String remains highly volatile throughout the entire run at 16–25s.*
+
+### 2. Stability & Jitter
+The cross-machine environment exposes a clear determinism gap between the two methods:
+
+* **UInt8MultiArray (Blue):** Bimodal distribution with two clusters—one around 10–11s (early messages before the phase shift) and a dominant peak near 14s (the majority of messages). Despite the phase shift, total variance is far lower than String.
+* **String (Base64) (Orange):** Wide, spread-out distribution from 16s to over 24s, peaking around 17–18s. The larger payload amplifies sensitivity to any network congestion, producing extreme jitter and a long outlier tail reaching ~25s.
+* **Overlap Zone:** A narrow overlap exists around 15–16s where the tail of Binary messages meets the earliest String messages. This is the exception, not the rule.
+
+![Stability](analysis/plots_2nd/diff_machines/latency_histogram.png)
+
+---
+
+### Visualization Summary
+
+* **Box Plot:** The Binary IQR (approximately 11–14s) sits entirely below the String IQR (approximately 17.5–20s). The Binary worst-case whisker (~18s) barely reaches the String median (~18.5s), confirming Binary’s systematic advantage.
+* **Histogram:** Two distinct populations with minimal overlap. Binary has a bimodal shape concentrated below 15s; String is broadly spread from 16s to 25s with no dominant single peak.
+* **CDF Plot:** The Binary curve completes 100% of messages by ~18s; the String curve does not reach its midpoint (50%) until ~18s, confirming that Binary finishes entirely before String even reaches the halfway mark.
+
+![CDF](analysis/plots_2nd/diff_machines/latency_cdf.png)
+
+## Third Experiment
+We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding) across two high-performance **X86 machines**. The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction over a local network.
+
+![Latency Boxplot](analysis/plots_2nd/x86_machines/latency_boxplot.png)
+
+### The Results at a Glance
+| Metric | UInt8MultiArray (Binary) | String (Base64) |
+| :--- | :--- | :--- |
+| **Payload Size** | ~150 MB | ~150 MB |
+| **Transmission Size** | ~150 MB | ~200 MB (33% overhead) |
+| **Average Latency** | **8.3911 seconds** | **10.5983 seconds** |
+| **Performance Gain** | **~20.8% Faster** | - |
+
+---
+
+## Key Findings
+
+### 1. Speed & Efficiency: Processing Power vs. Bandwidth
+Between two powerful X86 machines, high CPU performance reduces the absolute gap compared to the Jetson Nano experiment, but **Binary** still maintains a clear advantage. The network bandwidth ceiling remains the primary bottleneck—keeping the payload at 150 MB rather than 200 MB directly reduces transmission time and packet count.
+
+Despite fast processors on both ends, the **String (Base64)** method’s extra 50 MB of network traffic still adds over **2 seconds** of latency per message, and—critically—introduces far more unpredictability.
+
+![Speed & Efficiency](analysis/plots_2nd/x86_machines/latency_vs_msg_id.png)
+*Note: Binary holds a stable band around 8–9s while String fluctuates broadly from 9s to 15s with frequent large spikes.*
+
+### 2. Stability & Jitter
+Even with identical, high-performance hardware on both ends, the binary method is dramatically more predictable:
+
+* **UInt8MultiArray (Blue):** Extremely tight distribution with a dominant peak at 8–8.5s (frequency ~30), dropping off sharply by 9s. A small cluster of outliers reaches up to ~12.7s, but the vast majority of messages land in a very narrow window.
+* **String (Base64) (Orange):** Wide, flat distribution spread from 8s to 15s, with several local peaks around 9s, 10.5s, 11s, and 11.5s. The larger payload remains susceptible to unpredictable network timing even on capable symmetric hardware.
+* **Overlap Zone:** A moderate overlap exists from ~8s to ~9.5s, where x86 processing speed briefly masks the Base64 overhead for the fastest String deliveries.
+
+![Stability](analysis/plots_2nd/x86_machines/latency_histogram.png)
+
+---
+
+### Visualization Summary
+
+* **Box Plot:** The Binary IQR is extremely narrow (~8–8.5s), while the String IQR spans ~9.5–11.5s. The Binary median (~8.2s) is lower than the String 25th percentile (~9.5s), meaning Binary beats String in nearly every individual trial.
+* **Histogram:** The Binary group forms a very tall, steep spike at 8s (frequency ~30) that drops to near-zero by 9s. The String group is spread broadly from 8s to 15s with no dominant peak, indicating high unpredictability.
+* **CDF Plot:** Binary reaches ~95% completion by 9s and 100% by ~10s. String does not reach 90% until ~13s, confirming Binary’s superior determinism even on high-performance symmetric hardware.
+
+![CDF](analysis/plots_2nd/x86_machines/latency_cdf.png)
+
+## Final Conclusion
+
+The list of generated float32 numpy arrays benchmark reveals a more nuanced picture than the single-array case.
+
+* **One X86 machine:** The result is **reversed**—String (Base64) is ~49% faster. When packing a list of multi-dimensional arrays, the overhead of concatenating multiple array chunks into a single flat UInt8MultiArray payload dominates on a local machine where network bandwidth is not a constraint. However, the binary method still achieves near-perfect determinism with essentially zero variance, while String spreads across a 1.1s–1.7s range.
+* **X86 + ARM (Jetson Nano):** Binary recovers its advantage with a **~30.7% faster** transmission. Crossing the network boundary makes the 33% payload reduction decisive. The Jetson Nano’s limited bandwidth and memory bus are directly relieved by the smaller 150 MB payload, while String’s 200 MB causes extreme jitter (16–25s range) and a long outlier tail.
+* **X86 + X86:** Binary maintains a **~20.8% faster** transmission. With two capable machines, CPU speed partially reduces the Base64 encoding penalty, but the physical bandwidth ceiling keeps Binary ahead. More importantly, Binary provides dramatically better consistency—its distribution is essentially a single spike at 8s, while String scatters broadly from 8s to 15s.
+
+**Recommendation:** For multi-array AI tensor transmission, the choice depends on context. If processing is strictly local with no network involved, String may deliver lower latency—but only when predictability is not critical. For any networked deployment, UInt8MultiArray is mandatory; the payload size reduction directly reduces transmission time and jitter at every network tier.
