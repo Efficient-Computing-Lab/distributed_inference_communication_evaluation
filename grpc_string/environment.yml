@@ -1,0 +1,12 @@
+name: grpc_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy
+  - pip
+  - pip:
+    - grpcio==1.80.0
+    - grpcio-tools==1.80.0
+    - protobuf==6.32.1

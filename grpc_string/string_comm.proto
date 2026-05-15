@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package string_comm;
+
+service DataStream {
+  rpc Stream (StreamRequest) returns (stream DataMessage);
+}
+
+message StreamRequest {}
+
+message DataMessage {
+  int32  msg_id        = 1;
+  double publish_time  = 2;
+  bytes  payload       = 3;
+  string message_type  = 4;
+}
