@@ -18,6 +18,11 @@ This project benchmarks the performance of two data transmission methods in Ros2
 * **Environment:** Publisher runs on X86 machine and Subscriber runs on another X86 machine.
 * **Network Type:** Local Network
 
+**UDP test [TODO]:**
+Calculate highest theoretical throughput achieved with raw UDP using [Iperf3](https://iperf.fr/). 
+- On the machine that would run the ROS publisher, run `python3 udp_test.py --ip <remote host address> --remote_user <remote host name> --trials 100 --duration 30`. The script creates a timestamped folder, gathers and logs local and remote (through ssh) machine hardware specifications, runs iperf3 server on the remote host, and the iperf3 client locally (you might need to input your ssh credentials twice if you don't login with an ssh key).
+
+
 ## First Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
 
