@@ -74,9 +74,22 @@ class DataStreamServer(fl.FlightServerBase):
             try:
                 while True:
                     item = q.get()
-                    if item is None:  # sentinel: server is shutting down
+                    if item is None:
                         return
-                    yield item  # (RecordBatch, metadata_bytes)
+                    # Drain stale messages, keep only the latest
+                    while not q.empty():
+                        try:
+                            newer = q.get_nowait()
+                            if newer is None:
+                                return
+                            item = newer
+                        except queue.Empty:
+                            break
+                    batch, meta = item
+                    msg_id, _ = struct.unpack('=Id', meta)
+                    # Stamp actual send time so latency = pure transfer time
+                    send_time = time.time()
+                    yield batch, struct.pack('=Id', msg_id, send_time)
             finally:
                 with self._clients_lock:
                     try:
