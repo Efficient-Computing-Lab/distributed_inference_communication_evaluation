@@ -26,7 +26,7 @@ class DataStreamServer(fl.FlightServerBase):
         self._csv_file = os.path.join(folder_path, "server_log.csv")
         if not os.path.exists(self._csv_file):
             with open(self._csv_file, "w", newline="") as f:
-                csv.writer(f).writerow(["msg_id", "publish_time", "message_type"])
+                csv.writer(f).writerow(["msg_id", "publish_time", "dropped_msgs", "message_type"])
 
         self._gen_thread = threading.Thread(target=self._generate_loop, daemon=True)
         self._gen_thread.start()
@@ -45,12 +45,22 @@ class DataStreamServer(fl.FlightServerBase):
             # Per-batch metadata carries msg_id + publish_time (no extra column needed)
             metadata = struct.pack('=Id', self._msg_id, publish_time)
 
+            dropped = 0
             with self._clients_lock:
                 for q in self._clients:
+                    # Drain stale messages so latency reflects transfer time, not queue wait
+                    while not q.empty():
+                        try:
+                            q.get_nowait()
+                            dropped += 1
+                        except queue.Empty:
+                            break
+                    if dropped:
+                        print(f"  WARNING: dropped {dropped} stale message(s) — client too slow")
                     q.put((batch, metadata))
 
             with open(self._csv_file, "a", newline="") as f:
-                csv.writer(f).writerow([self._msg_id, publish_time, "ArrowFlight"])
+                csv.writer(f).writerow([self._msg_id, publish_time, dropped, "ArrowFlight"])
 
             print(f"Sent msg #{self._msg_id} to {len(self._clients)} client(s)")
             time.sleep(INTERVAL_SEC)
