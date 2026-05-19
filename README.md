@@ -29,7 +29,7 @@ Calculate highest theoretical throughput achieved with raw TCP using [Iperf3](ht
 ## First Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
 
-![Latency Boxplot](analysis/plots/same_machine/latency_boxplot.png)
+![Latency Boxplot](analysis/wifi/plots/same_machine/latency_boxplot.png)
 
 ### The Results at a Glance
 | Metric | UInt8MultiArray (Binary) | String (Base64) |
@@ -48,7 +48,7 @@ The **UInt8MultiArray** is significantly faster because it uses raw memory casti
 
 The **String (Base64)** method incurs a heavy "Serialization Tax." The CPU must mathematically transform every byte into an ASCII character, increasing the data volume to **200 MB** and adding a constant overhead of roughly **0.45 seconds**.
 
-![Speed & Efficiency](analysis/plots/same_machine/latency_vs_msg_id.png)
+![Speed & Efficiency](analysis/wifi/plots/same_machine/latency_vs_msg_id.png)
 *Note: Both methods show a "warm-up" spike for the first few messages before stabilizing.*
 
 ### 2. Stability & Jitter
@@ -56,7 +56,7 @@ As shown in the distribution plots, the binary method is not only faster but mor
 - **Binary (Blue):** Highly stable with very low variance (tightly packed histogram).
 - **Base64 (Orange):** Exhibits significant **jitter** (latency spikes). This is due to the inconsistent CPU time required to decode large Base64 strings.
 
-![Stability](analysis/plots/same_machine/latency_histogram.png)
+![Stability](analysis/wifi/plots/same_machine/latency_histogram.png)
 
 ---
 
@@ -66,12 +66,12 @@ As shown in the distribution plots, the binary method is not only faster but mor
 * **Histogram:** Displays two distinct, non-overlapping populations. The binary group is localized at the 0.8s mark, while the Base64 group is spread across the 1.3s mark.
 * **CDF Plot:** Confirms that **100%** of binary messages are fully processed before the first Base64 message even arrives.
 
-![CDF](analysis/plots/same_machine/latency_cdf.png)
+![CDF](analysis/wifi/plots/same_machine/latency_cdf.png)
 
 ## Second Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
 
-![Latency Boxplot](analysis/plots/diff_machine/latency_boxplot.png)
+![Latency Boxplot](analysis/wifi/plots/diff_machine/latency_boxplot.png)
 
 ### The Results at a Glance
 | Metric | UInt8MultiArray (Binary) | String (Base64)        |
@@ -92,7 +92,7 @@ In contrast, the String (Base64) method imposes a massive "Bandwidth Tax." Beyon
 
 Note: Both methods exhibit an initial "warm-up" spike (visible in the Msg ID plot) as the DDS middleware establishes discovery and allocates network buffers before reaching a stabilized, albeit volatile, state.
 
-![Speed & Efficiency](analysis/plots/diff_machine/latency_vs_msg_id.png)
+![Speed & Efficiency](analysis/wifi/plots/diff_machine/latency_vs_msg_id.png)
 *Note: Both methods show a "warm-up" spike for the first few messages before stabilizing.*
 
 ### 2. Stability & Jitter
@@ -104,7 +104,7 @@ The Multi-Machine experiment confirms that the binary method is not only faster 
 
 * The Overlap Zone: The small brownish region where the two shapes meet (roughly between 16 and 20 seconds) represents rare instances where the methods perform similarly. This occurs when a "lucky" String message catches a window of perfect network health, allowing it to match the speed of a "slow" Binary message delayed by a minor collision. However, this is the exception, not the rule; the vast separation of the peaks proves that Binary is systematically superior.
 
-![Stability](analysis/plots/diff_machine/latency_histogram.png)
+![Stability](analysis/wifi/plots/diff_machine/latency_histogram.png)
 
 ### Visualization Summary
 
@@ -114,12 +114,12 @@ The Multi-Machine experiment confirms that the binary method is not only faster 
 
 * **CDF Plot:** Confirms a "Deterministic vs. Probabilistic" divide. The steep Binary curve shows that 90% of binary messages are fully processed before even the first 20% of Base64 messages arrive, proving far superior reliability for time-critical tasks.
 
-![CDF](analysis/plots/diff_machine/latency_cdf.png)
+![CDF](analysis/wifi/plots/diff_machine/latency_cdf.png)
 
 ## Third Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding) across two high-performance **x86 machines**. The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
 
-![Latency Boxplot](analysis/plots/x86_machines/latency_boxplot.png)
+![Latency Boxplot](analysis/wifi/plots/x86_machines/latency_boxplot.png)
 
 ### The Results at a Glance
 | Metric | UInt8MultiArray (Binary) | String (Base64) |
@@ -140,7 +140,7 @@ Despite the high-end CPUs, the **String (Base64)** method remains slower due to 
 
 
 
-![Speed & Efficiency](analysis/plots/x86_machines/latency_vs_msg_id.png)
+![Speed & Efficiency](analysis/wifi/plots/x86_machines/latency_vs_msg_id.png)
 *Note: The time-series plot shows that while x86 handles data faster, the String method still suffers from higher volatility and periodic spikes.*
 
 ### 2. Stability & Jitter
@@ -150,7 +150,7 @@ Even with superior hardware, the binary method proves to be the most reliable fo
 * **Base64 (Orange):** Shows increased variance and a clear shift to the right. The distribution is wider, peaking between **10s and 12s**, and remains susceptible to network-induced jitter.
 * **The Overlap Zone:** While there is a moderate overlap between 8s and 10s where x86 processing power helps "mask" the Base64 overhead, the Binary method's peak is consistently lower, proving it is the only way to achieve maximum throughput.
 
-![Stability](analysis/plots/x86_machines/latency_histogram.png)
+![Stability](analysis/wifi/plots/x86_machines/latency_histogram.png)
 
 ---
 
@@ -160,7 +160,7 @@ Even with superior hardware, the binary method proves to be the most reliable fo
 * **Histogram:** Displays two distinct distributions. The Binary group forms a tall, localized "tower" at the start of the timeline, whereas the Base64 group is spread further across the x-axis.
 * **CDF Plot:** Confirms that roughly **80%** of Binary messages are completed before the first **20%** of Base64 messages, even on high-performance hardware.
 
-![CDF](analysis/plots/x86_machines/latency_cdf.png)
+![CDF](analysis/wifi/plots/x86_machines/latency_cdf.png)
 
 ## Final Conclusion
 
@@ -203,7 +203,7 @@ self.shapes = [
 ## First Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
 
-![Latency Boxplot](analysis/plots_2nd/same_machine/latency_boxplot.png)
+![Latency Boxplot](analysis/wifi/plots_2nd/same_machine/latency_boxplot.png)
 
 ### The Results at a Glance
 | Metric | UInt8MultiArray (Binary) | String (Base64) |
@@ -222,7 +222,7 @@ In this same-machine experiment, the result is **reversed** compared to the sing
 
 The **UInt8MultiArray** method must pack every array in the list into one contiguous byte sequence before transmission, adding a constant multi-step serialization overhead of roughly **1.2 seconds** even without any network involvement.
 
-![Speed & Efficiency](analysis/plots_2nd/same_machine/latency_vs_msg_id.png)
+![Speed & Efficiency](analysis/wifi/plots_2nd/same_machine/latency_vs_msg_id.png)
 *Note: The binary method runs as a perfectly flat line at ~2.4s, while String fluctuates between 1.1s and 1.7s with no warm-up effect.*
 
 ### 2. Stability & Jitter
@@ -231,7 +231,7 @@ While String is faster in this configuration, the binary method demonstrates exc
 * **UInt8MultiArray (Blue):** Virtually zero variance. The histogram shows an ultra-narrow, tall tower tightly packed at the ~2.4s mark, indicating a completely deterministic serialization process.
 * **String (Base64) (Orange):** Faster overall, but exhibits more spread. The distribution ranges from 1.1s to 1.4s with occasional outliers reaching 1.7s, reflecting variable CPU time for Base64 encoding of the individual array chunks.
 
-![Stability](analysis/plots_2nd/same_machine/latency_histogram.png)
+![Stability](analysis/wifi/plots_2nd/same_machine/latency_histogram.png)
 
 ---
 
@@ -241,12 +241,12 @@ While String is faster in this configuration, the binary method demonstrates exc
 * **Histogram:** Two completely non-overlapping populations. The String group (orange) spreads between 1.1s and 1.7s, while the Binary group (blue) forms an extremely tight tower at 2.4s.
 * **CDF Plot:** Confirms full separation—100% of String messages complete before even the first Binary message arrives. String’s CDF completes by ~1.75s; Binary’s CDF does not begin until ~2.3s.
 
-![CDF](analysis/plots_2nd/same_machine/latency_cdf.png)
+![CDF](analysis/wifi/plots_2nd/same_machine/latency_cdf.png)
 
 ## Second Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding) across an X86 publisher and a **Jetson Nano** subscriber. The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction over a local network.
 
-![Latency Boxplot](analysis/plots_2nd/diff_machines/latency_boxplot.png)
+![Latency Boxplot](analysis/wifi/plots_2nd/diff_machines/latency_boxplot.png)
 
 ### The Results at a Glance
 | Metric | UInt8MultiArray (Binary) | String (Base64) |
@@ -265,7 +265,7 @@ Once the payload crosses a network boundary to the bandwidth-constrained Jetson 
 
 The **String (Base64)** method’s 33% size expansion becomes a decisive penalty here—forcing 50 MB of extra data through the network on every single message, while the Jetson’s limited ARM cores simultaneously struggle to decode the larger payload.
 
-![Speed & Efficiency](analysis/plots_2nd/diff_machines/latency_vs_msg_id.png)
+![Speed & Efficiency](analysis/wifi/plots_2nd/diff_machines/latency_vs_msg_id.png)
 *Note: The binary time series shows a phase shift around message 40 (jumping from ~11s to ~14s), while String remains highly volatile throughout the entire run at 16–25s.*
 
 ### 2. Stability & Jitter
@@ -275,7 +275,7 @@ The cross-machine environment exposes a clear determinism gap between the two me
 * **String (Base64) (Orange):** Wide, spread-out distribution from 16s to over 24s, peaking around 17–18s. The larger payload amplifies sensitivity to any network congestion, producing extreme jitter and a long outlier tail reaching ~25s.
 * **Overlap Zone:** A narrow overlap exists around 15–16s where the tail of Binary messages meets the earliest String messages. This is the exception, not the rule.
 
-![Stability](analysis/plots_2nd/diff_machines/latency_histogram.png)
+![Stability](analysis/wifi/plots_2nd/diff_machines/latency_histogram.png)
 
 ---
 
@@ -285,12 +285,12 @@ The cross-machine environment exposes a clear determinism gap between the two me
 * **Histogram:** Two distinct populations with minimal overlap. Binary has a bimodal shape concentrated below 15s; String is broadly spread from 16s to 25s with no dominant single peak.
 * **CDF Plot:** The Binary curve completes 100% of messages by ~18s; the String curve does not reach its midpoint (50%) until ~18s, confirming that Binary finishes entirely before String even reaches the halfway mark.
 
-![CDF](analysis/plots_2nd/diff_machines/latency_cdf.png)
+![CDF](analysis/wifi/plots_2nd/diff_machines/latency_cdf.png)
 
 ## Third Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding) across two high-performance **X86 machines**. The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction over a local network.
 
-![Latency Boxplot](analysis/plots_2nd/x86_machines/latency_boxplot.png)
+![Latency Boxplot](analysis/wifi/plots_2nd/x86_machines/latency_boxplot.png)
 
 ### The Results at a Glance
 | Metric | UInt8MultiArray (Binary) | String (Base64) |
@@ -309,7 +309,7 @@ Between two powerful X86 machines, high CPU performance reduces the absolute gap
 
 Despite fast processors on both ends, the **String (Base64)** method’s extra 50 MB of network traffic still adds over **2 seconds** of latency per message, and—critically—introduces far more unpredictability.
 
-![Speed & Efficiency](analysis/plots_2nd/x86_machines/latency_vs_msg_id.png)
+![Speed & Efficiency](analysis/wifi/plots_2nd/x86_machines/latency_vs_msg_id.png)
 *Note: Binary holds a stable band around 8–9s while String fluctuates broadly from 9s to 15s with frequent large spikes.*
 
 ### 2. Stability & Jitter
@@ -319,7 +319,7 @@ Even with identical, high-performance hardware on both ends, the binary method i
 * **String (Base64) (Orange):** Wide, flat distribution spread from 8s to 15s, with several local peaks around 9s, 10.5s, 11s, and 11.5s. The larger payload remains susceptible to unpredictable network timing even on capable symmetric hardware.
 * **Overlap Zone:** A moderate overlap exists from ~8s to ~9.5s, where x86 processing speed briefly masks the Base64 overhead for the fastest String deliveries.
 
-![Stability](analysis/plots_2nd/x86_machines/latency_histogram.png)
+![Stability](analysis/wifi/plots_2nd/x86_machines/latency_histogram.png)
 
 ---
 
@@ -329,7 +329,7 @@ Even with identical, high-performance hardware on both ends, the binary method i
 * **Histogram:** The Binary group forms a very tall, steep spike at 8s (frequency ~30) that drops to near-zero by 9s. The String group is spread broadly from 8s to 15s with no dominant peak, indicating high unpredictability.
 * **CDF Plot:** Binary reaches ~95% completion by 9s and 100% by ~10s. String does not reach 90% until ~13s, confirming Binary’s superior determinism even on high-performance symmetric hardware.
 
-![CDF](analysis/plots_2nd/x86_machines/latency_cdf.png)
+![CDF](analysis/wifi/plots_2nd/x86_machines/latency_cdf.png)
 
 ## Final Conclusion
 
