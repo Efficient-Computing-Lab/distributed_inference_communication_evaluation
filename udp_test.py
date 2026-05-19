@@ -1,6 +1,7 @@
 import subprocess
 import json
 import os
+import sys
 import time
 import argparse
 import socket
@@ -99,6 +100,10 @@ def main():
 
     cmd = f"ssh {args.remote_user}@{args.ip} 'python3 -' < {os.path.join(os.getcwd(),'get_machine_info.py')}"
     result = subprocess.run(cmd, capture_output=True,text=True, shell=True)
+    if result.returncode != 0 or not result.stdout.strip():
+        print(f"ERROR: Failed to get remote machine info (exit {result.returncode})")
+        print(f"stderr: {result.stderr.strip()}")
+        sys.exit(1)
     info_remote = json.loads(result.stdout)
     print("\n=====REMOTE MACHINE INFO =====")
     for k, v in info_remote.items():
