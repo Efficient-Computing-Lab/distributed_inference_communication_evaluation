@@ -2,16 +2,21 @@
 
 This project benchmarks the performance of two data transmission methods in ROS2 Jazzy version when handling large payloads (**150 MB**). The data represents a `float32` NumPy array.
 
-Both X86 machines are connected to the network via **Ethernet** cable.
+Both machines are connected to the network via **Ethernet** cable.
 
-**Experiment Setup:**
+**First Experiment Setup:**
 * **Payload:** 150 MB (randomly generated `float32` array).
 * **Environment:** Publisher runs on one X86 machine and Subscriber runs on another X86 machine.
 * **Network Type:** Local Network (Ethernet)
 
+**Second Experiment Setup:**
+* **Payload:** 150 MB (randomly generated `float32` array).
+* **Environment:** Publisher runs on one X86 machine and Subscriber runs on a Jetson Nano.
+* **Network Type:** Local Network (Ethernet)
+
 ---
 
-## Experiment
+## First Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
 
 ![Latency Boxplot](analysis/ethernet/plots/x86_machines/latency_boxplot.png)
@@ -56,26 +61,71 @@ Ethernet provides a remarkably stable transmission environment for both methods:
 
 ---
 
-## Comparison with WiFi (X86 + X86)
+## Second Experiment
+We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding) across an X86 publisher and a **Jetson Nano** subscriber connected via Ethernet. The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
 
-| Metric | Ethernet (Binary) | WiFi (Binary) | Ethernet (String) | WiFi (String) |
+![Latency Boxplot](analysis/ethernet/plots/diff_machines/latency_boxplot.png)
+
+### The Results at a Glance
+| Metric | UInt8MultiArray (Binary) | String (Base64) |
+| :--- | :--- | :--- |
+| **Payload Size** | 150 MB | 150 MB |
+| **Transmission Size** | ~150 MB | ~200 MB (33% overhead) |
+| **Average Latency** | **3.5886 seconds** | **5.0823 seconds** |
+| **Performance Gain** | **~29.4% Faster** | - |
+
+---
+
+## Key Findings
+
+### 1. Speed & Efficiency: ARM Hardware as the New Bottleneck
+With the Jetson Nano as the subscriber, the **UInt8MultiArray** advantage holds—and at the same ~29% margin seen in the X86+X86 case. The Ethernet link is fast enough in both cases that the primary cost driver is not the network itself but the payload volume: Binary transmits 150 MB; Base64 forces 200 MB through the interface and into the Jetson's constrained memory bus.
+
+The **String (Base64)** method imposes a double penalty on the Jetson Nano: the CPU must mathematically decode every Base64 character back to binary while the network interface simultaneously handles the 33% extra data. Even on a fast wired link this adds **~1.5 seconds** of overhead per message compared to Binary.
+
+![Speed & Efficiency](analysis/ethernet/plots/diff_machines/latency_vs_msg_id.png)
+*Note: Both methods are stable from the first message. The Jetson Nano's limited CPU is reflected in the higher absolute latencies (~3.6s and ~5.1s) compared to the X86+X86 case (~2.1s and ~3.0s).*
+
+### 2. Stability & Jitter
+Ethernet keeps both methods well-behaved even on the constrained Jetson Nano:
+
+* **UInt8MultiArray (Blue):** Tight bimodal distribution around **3.45s** and **3.76s** (std ≈ 0.136s), reflecting the Jetson Nano's alternating fast and slow receive cycles as it processes the large DMA transfer. Overall variance remains low.
+* **String (Base64) (Orange):** Clustered around **4.85s–5.3s** (std ≈ 0.156s), slightly wider than Binary due to variable Base64 decoding time on the ARM cores.
+
+![Stability](analysis/ethernet/plots/diff_machines/latency_histogram.png)
+
+---
+
+### Visualization Summary
+
+* **Box Plot:** The Binary IQR sits entirely below the String IQR with no overlap, mirroring the X86+X86 result. Both boxes are narrow compared to WiFi experiments.
+* **Histogram:** Two distinct, non-overlapping populations. Binary has a bimodal shape tightly packed below 3.9s; String is concentrated in the 4.8s–5.4s band.
+* **CDF Plot:** Confirms full separation—100% of Binary messages complete before the first String message arrives, even with a Jetson Nano as the subscriber.
+
+![CDF](analysis/ethernet/plots/diff_machines/latency_cdf.png)
+
+---
+
+## Comparison: X86+X86 vs X86+Jetson Nano (Ethernet)
+
+| Metric | Ethernet x86 (Binary) | Ethernet Jetson (Binary) | Ethernet x86 (String) | Ethernet Jetson (String) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Average Latency** | **2.1086s** | 8.6934s | **2.9777s** | 11.0463s |
-| **Speedup vs WiFi** | **~4.1×** | - | **~3.7×** | - |
+| **Average Latency** | **2.1086s** | 3.5886s | **2.9777s** | 5.0823s |
+| **vs WiFi equivalent** | ~4.1× faster | ~4.6× faster | ~3.7× faster | ~4.9× faster |
 
-Ethernet delivers approximately **4× lower latency** for the Binary method. The Binary advantage holds in both network environments, confirming that the serialization overhead (not the network medium) determines the winner.
+Switching from X86+X86 to X86+Jetson Nano over Ethernet increases latency by ~70% (Binary) and ~71% (String). The Jetson Nano's limited CPU and memory bandwidth—not the Ethernet link—is the bottleneck in both cases. However, Ethernet eliminates the WiFi network jitter entirely, so even the Jetson Nano achieves dramatically more stable delivery than any WiFi scenario.
 
 ---
 
 ## Final Conclusion
 
-Over Ethernet, **UInt8MultiArray (Binary)** is still the mandatory choice for high-bandwidth ROS 2 applications:
+Over Ethernet, **UInt8MultiArray (Binary)** is the mandatory choice for high-bandwidth ROS 2 applications in both hardware configurations:
 
-* **Physical Bandwidth Ceiling:** Even on fast wired networks, keeping the payload at 150 MB rather than 200 MB reduces the number of packets in flight, minimizes the probability of buffer stalls, and ensures more deterministic arrival times.
-* **CPU Tax Remains:** The Base64 encoding/decoding overhead is a fixed CPU cost independent of the network medium. On Ethernet it is still ~0.87s of wasted compute per message.
-* **Ethernet vs WiFi:** The absolute latency improvement (4× lower) from switching to Ethernet is larger than the relative gain from choosing the right message type (~29%). For latency-critical systems, both choices compound: use Ethernet **and** UInt8MultiArray.
+* **X86 + X86:** Both machines handle the binary payload with minimal overhead. Binary transmits 150 MB deterministically in ~2.1s; Base64 wastes ~0.87s per message in unnecessary CPU encoding.
+* **X86 + Jetson Nano:** The ARM CPU and constrained memory bus make the 33% payload reduction of Binary even more impactful. Ethernet keeps jitter low for both methods, but Binary finishes ~1.5s sooner per message, freeing the Jetson for inference tasks.
+* **Ethernet vs WiFi:** The absolute latency improvement (4–5× lower) from switching to Ethernet is larger than the relative gain from choosing the right message type (~29%). For latency-critical systems, both choices compound: use Ethernet **and** UInt8MultiArray.
 
-**Recommendation:** For AI tensors over any network medium, UInt8MultiArray is optimal. The convenience of String types is outweighed by both the serialization CPU tax and the transmission bandwidth penalty.
+**Recommendation:** For AI tensors over any Ethernet network, UInt8MultiArray is optimal regardless of subscriber hardware. The serialization CPU tax and bandwidth penalty of String types are inescapable—even a fast wired link cannot hide them.
 
 ---
 
@@ -93,14 +143,19 @@ self.shapes = [
 ]
 ```
 
-**Experiment Setup:**
+**First Experiment Setup:**
 * **Payload:** ~150 MB (list of generated `float32` numpy arrays).
 * **Environment:** Publisher runs on one X86 machine and Subscriber runs on another X86 machine.
 * **Network Type:** Local Network (Ethernet)
 
+**Second Experiment Setup:**
+* **Payload:** ~150 MB (list of generated `float32` numpy arrays).
+* **Environment:** Publisher runs on one X86 machine and Subscriber runs on a Jetson Nano.
+* **Network Type:** Local Network (Ethernet)
+
 ---
 
-## Experiment
+## First Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
 
 ![Latency Boxplot](analysis/ethernet/plots_2nd/x86_machines/latency_boxplot.png)
@@ -145,44 +200,106 @@ While String is faster in this configuration, the binary method remains highly p
 
 ---
 
-## Comparison with WiFi (X86 + X86)
+## Second Experiment
+We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding) across an X86 publisher and a **Jetson Nano** subscriber connected via Ethernet. The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
+
+![Latency Boxplot](analysis/ethernet/plots_2nd/diff_machines/latency_boxplot.png)
+
+### The Results at a Glance
+| Metric | UInt8MultiArray (Binary) | String (Base64) |
+| :--- | :--- | :--- |
+| **Payload Size** | ~150 MB | ~150 MB |
+| **Transmission Size** | ~150 MB | ~200 MB (33% overhead) |
+| **Average Latency** | **4.1493 seconds** | **3.3067 seconds** |
+| **Performance Gain** | - | **~20.3% Faster** |
+
+---
+
+## Key Findings
+
+### 1. Speed & Efficiency: String Wins Again, But the Gap Narrows
+The String (Base64) advantage **persists** even when crossing to the Jetson Nano over Ethernet—but narrows significantly from 37.7% to 20.3%. The root cause is the same: the constant packing overhead of assembling multiple array chunks into one flat UInt8MultiArray payload (~1.2s) still dominates over the network transmission time on a fast Ethernet link.
+
+However, the Jetson Nano's slower ARM cores begin to partially penalize String as well—decoding four separate Base64 chunks on a constrained CPU adds measurable overhead that was invisible on X86. The gap closes from 1.22s (X86+X86) to 0.84s (X86+Jetson), hinting that on an even more constrained receiver the winner would eventually flip back to Binary.
+
+![Speed & Efficiency](analysis/ethernet/plots_2nd/diff_machines/latency_vs_msg_id.png)
+*Note: Both methods show stable delivery with minimal jitter. Binary runs as a near-flat line at ~4.1s; String clusters tightly around 3.2–3.5s.*
+
+### 2. Stability & Jitter
+Both methods remain stable on the Jetson Nano over Ethernet:
+
+* **UInt8MultiArray (Blue):** Ultra-tight distribution tightly packed at ~4.1s (std ≈ 0.108s). The constant packing cost produces a near-deterministic flat line per message.
+* **String (Base64) (Orange):** Slightly more spread (std ≈ 0.123s) with a bimodal structure around 3.2s and 3.5s, reflecting the Jetson Nano's alternating fast/slow Base64 decode cycles across the four array chunks.
+
+![Stability](analysis/ethernet/plots_2nd/diff_machines/latency_histogram.png)
+
+---
+
+### Visualization Summary
+
+* **Box Plot:** The String IQR (~3.2s–3.5s) sits entirely below the Binary IQR (~4.1s), with no overlap.
+* **Histogram:** Two distinct populations. String has a bimodal shape concentrated below 3.55s; Binary forms a tight tower at ~4.1s.
+* **CDF Plot:** String completes 100% of messages before Binary begins—full separation maintained even on constrained hardware.
+
+![CDF](analysis/ethernet/plots_2nd/diff_machines/latency_cdf.png)
+
+---
+
+## Comparison: X86+X86 vs X86+Jetson Nano (Ethernet)
+
+| Metric | Ethernet x86 (Binary) | Ethernet Jetson (Binary) | Ethernet x86 (String) | Ethernet Jetson (String) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Average Latency** | 3.2343s | 4.1493s | **2.0153s** | **3.3067s** |
+| **Winner** | String by 37.7% | String by 20.3% | - | - |
+
+String wins in both Ethernet configurations, but the **margin shrinks by nearly half** (37.7% → 20.3%) as the Jetson Nano's limited decoding throughput starts to penalize the Base64 approach. This confirms the trend seen across experiments: as subscriber CPU weakens, the packing-overhead advantage of Binary eventually overtakes the Base64 encoding penalty.
+
+---
+
+## Comparison with WiFi (X86 + Jetson Nano)
 
 | Metric | Ethernet (Binary) | WiFi (Binary) | Ethernet (String) | WiFi (String) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Average Latency** | 3.2343s | 8.3911s | **2.0153s** | 10.5983s |
-| **Winner** | String by 37.7% | Binary by 20.8% | - | - |
+| **Average Latency** | 4.1493s | 12.9736s | **3.3067s** | 18.7159s |
+| **Speedup vs WiFi** | **~3.1×** | - | **~5.7×** | - |
 
-The winner **flips between Ethernet and WiFi**. On WiFi, the 33% payload reduction of Binary is enough to overcome the packing overhead. On Ethernet, the fast link reduces transmission time so much that the packing overhead of Binary dominates, handing the win back to String—matching the same-machine WiFi result.
+Ethernet delivers ~3–6× lower latency over WiFi for the Jetson Nano scenario, and the winner (String) remains the same—but its margin shrinks as WiFi's larger network penalty amplifies the benefit of Binary's smaller payload.
 
 ---
 
 ## Final Conclusion
 
-The list of numpy arrays benchmark reveals a network-speed-dependent inversion:
+The list of numpy arrays benchmark over Ethernet reveals a nuanced, hardware-dependent picture:
 
-* **Over Ethernet (fast link):** **String (Base64) is ~37.7% faster.** The network is fast enough that the 33% payload reduction from Binary no longer offsets the constant packing overhead of assembling multiple array chunks. Ethernet effectively "closes the gap" between local and networked execution for this use case.
-* **Over WiFi (slower link):** Binary recovers its advantage (~20.8% faster) because the network becomes the bottleneck and the smaller 150 MB payload directly reduces transmission time.
+* **X86 + X86 (Ethernet):** **String (Base64) is ~37.7% faster.** The Ethernet link is fast enough that the 33% payload reduction from Binary no longer offsets the constant packing overhead of assembling four array chunks. String encodes each chunk independently, keeping per-message latency at ~2.0s vs Binary's ~3.2s.
+* **X86 + Jetson Nano (Ethernet):** **String (Base64) is still ~20.3% faster**, but the gap narrows significantly. The Jetson Nano's ARM cores begin to penalize Base64 decoding, partially eroding String's advantage. If the receiver were more constrained (e.g., an edge MCU), Binary would eventually win.
+* **WiFi → Ethernet:** Switching to Ethernet reduces latency by 3–6×, but the winner does not flip for the list-of-arrays case—unlike the single-array case where the winner remains Binary throughout.
 
-**Recommendation:** For multi-array AI tensor transmission over Ethernet, String (Base64) delivers lower latency—but only when the destination machine has sufficient CPU to handle decoding without overload. For any deployment where network bandwidth is limited (WiFi, long-haul, constrained links) or where the receiving end is resource-constrained (ARM edge devices), UInt8MultiArray remains the safer choice.
+**Recommendation:** For multi-array AI tensor transmission over Ethernet, String (Base64) delivers lower latency when the subscriber has sufficient CPU (X86 or comparable). For constrained receivers (Jetson Nano class or weaker) the gap narrows—monitor empirically and switch to UInt8MultiArray if the receiver begins throttling.
 
 ---
 
 # Non-ROS Alternatives Benchmark: Arrow IPC vs. Arrow Flight vs. gRPC String — Ethernet
 
-This section benchmarks three non-ROS transport methods for transmitting the same **150 MB** `float32` array between X86 machines over Ethernet. All three bypass the ROS 2 DDS middleware entirely.
+This section benchmarks three non-ROS transport methods for transmitting the same **150 MB** `float32` array between machines over Ethernet. All three bypass the ROS 2 DDS middleware entirely.
 
 * **Arrow IPC + TCP:** Serializes the array using Apache Arrow's IPC format and streams it over a raw TCP socket.
 * **Arrow Flight (gRPC):** Uses Apache Arrow Flight, which wraps Arrow IPC over gRPC for structured, bidirectional streaming.
 * **gRPC String (bytes):** Streams the raw `float32` array bytes as a protobuf `bytes` field inside a server-side streaming gRPC call.
 
-**Experiment Setup:**
+**First Experiment Setup:**
 * **Payload:** 150 MB (randomly generated `float32` array — same as ROS benchmarks).
 * **Environment:** Server runs on one X86 machine, client on another X86 machine.
 * **Network Type:** Local Network (Ethernet)
 
+**Second Experiment Setup:**
+* **Payload:** 150 MB (randomly generated `float32` array).
+* **Environment:** Server runs on one X86 machine, client on a Jetson Nano.
+* **Network Type:** Local Network (Ethernet)
+
 ---
 
-## Experiment
+## First Experiment
 We compared all three non-ROS methods and set the results against the best ROS 2 method (UInt8MultiArray, 2.1086s).
 
 ![Latency Boxplot](analysis/ethernet/plots_non_ros/x86_machines/latency_boxplot.png)
@@ -231,6 +348,55 @@ All three non-ROS methods are more stable than ROS 2, but the degree varies sign
 
 ---
 
+## Second Experiment
+We compared all three non-ROS methods with a **Jetson Nano** as the client and set the results against the best ROS 2 method for that hardware configuration (UInt8MultiArray, 3.5886s).
+
+![Latency Boxplot](analysis/ethernet/plots_non_ros/diff_machines/latency_boxplot.png)
+
+### The Results at a Glance
+| Metric | Arrow Flight (gRPC) | Arrow IPC + TCP | gRPC String (bytes) | ROS2 UInt8MultiArray |
+| :--- | :--- | :--- | :--- | :--- |
+| **Payload Size** | 150 MB | 150 MB | 150 MB | 150 MB |
+| **Average Latency** | **1.4472 seconds** | **1.6648 seconds** | **2.2333 seconds** | 3.5886 seconds |
+| **vs. ROS2 Binary** | **~59.7% Faster** | **~53.6% Faster** | **~37.8% Faster** | - |
+
+---
+
+## Key Findings
+
+### 1. Speed: Non-ROS Methods Dominate Even More Over Jetson Nano
+The hierarchy is identical to the X86+X86 case—Arrow Flight leads, then Arrow IPC, then gRPC String—but the **absolute advantage over ROS2 UInt8MultiArray more than doubles** (34–24% on X86 → 60–38% on Jetson Nano). This is because ROS2 UInt8MultiArray degrades substantially on the Jetson (3.59s vs 2.11s on X86) while the non-ROS methods are barely affected (latencies increase by only ~0.06s each).
+
+The explanation: non-ROS methods use direct socket/gRPC connections that bypass DDS discovery and fragmentation. The Jetson Nano's limited DMA bandwidth handles a single large TCP/gRPC stream efficiently, whereas ROS2 DDS splits the payload into many UDP fragments that must be reassembled under memory pressure on the ARM SoC.
+
+**Arrow Flight** at 1.45s demonstrates that the Jetson Nano's network interface is not the bottleneck—it can sustain near-X86 throughput when the transport is efficient. The ~0.06s increase from X86 reflects only the slightly slower Jetson CPU for Arrow IPC deserialization.
+
+**gRPC String (bytes)** at 2.23s is still ~37.8% faster than ROS2 UInt8MultiArray on Jetson Nano, a gap invisible in the X86+X86 case. This confirms that the DDS middleware overhead—not just payload size—is the differentiating cost factor on constrained hardware.
+
+![Speed & Efficiency](analysis/ethernet/plots_non_ros/diff_machines/latency_vs_msg_id.png)
+*Note: All three non-ROS methods show near-flat, stable latency on the Jetson Nano—no warm-up, no jitter spikes.*
+
+### 2. Stability & Jitter
+Non-ROS methods remain exceptionally stable on the Jetson Nano:
+
+* **Arrow Flight (gRPC):** Tightest of all at **1.45s** (std ≈ 0.027s). gRPC's flow control keeps delivery deterministic even on ARM.
+* **Arrow IPC + TCP:** Very tight at **1.66s** (std ≈ 0.041s). Raw TCP handles the large payload with minimal fragmentation overhead.
+* **gRPC String (bytes):** Stable at **2.23s** (std ≈ 0.063s). Single-message protobuf framing is less efficient but still far more predictable than ROS2 DDS on constrained hardware.
+
+![Stability](analysis/ethernet/plots_non_ros/diff_machines/latency_histogram.png)
+
+---
+
+### Visualization Summary
+
+* **Box Plot:** Three distinct, non-overlapping IQRs ordered by method—identical ranking to X86+X86. All three non-ROS IQRs sit well below the ROS2 UInt8MultiArray baseline of 3.59s.
+* **Histogram:** Three separate narrow peaks with no overlap. Arrow Flight at ~1.45s and Arrow IPC at ~1.66s form tight towers; gRPC String is slightly wider around ~2.23s.
+* **CDF Plot:** All three non-ROS methods complete 100% of messages well before ROS2 UInt8MultiArray completes even its first. Step-function shapes confirm near-deterministic delivery on Jetson Nano hardware.
+
+![CDF](analysis/ethernet/plots_non_ros/diff_machines/latency_cdf.png)
+
+---
+
 ## Overall Method Comparison (Ethernet, X86 + X86)
 
 | Method | Type | Avg Latency | vs. Slowest |
@@ -241,15 +407,25 @@ All three non-ROS methods are more stable than ROS 2, but the degree varies sign
 | **gRPC String (bytes)** | Non-ROS | 2.1671s | 27.3% Faster |
 | **ROS2 String (Base64)** | ROS2 | 2.9777s | — |
 
+## Overall Method Comparison (Ethernet, X86 + Jetson Nano)
+
+| Method | Type | Avg Latency | vs. Slowest |
+| :--- | :--- | :--- | :--- |
+| **Arrow Flight (gRPC)** | Non-ROS | **1.4472s** | **71.5% Faster** |
+| **Arrow IPC + TCP** | Non-ROS | **1.6648s** | **67.2% Faster** |
+| **gRPC String (bytes)** | Non-ROS | 2.2333s | **56.1% Faster** |
+| **ROS2 UInt8MultiArray** | ROS2 | 3.5886s | 29.4% Faster |
+| **ROS2 String (Base64)** | ROS2 | 5.0823s | — |
+
 ---
 
 ## Final Conclusion
 
 The non-ROS comparison shows that **bypassing DDS is necessary but not sufficient** to achieve low latency—the choice of wire format and streaming protocol matters just as much.
 
-* **Arrow Flight** is the fastest method tested overall, combining Apache Arrow's zero-copy columnar format with gRPC's efficient bidirectional streaming. For minimum latency on Ethernet, it is the clear top choice.
-* **Arrow IPC + TCP** delivers nearly the same performance with a simpler stack. It is a strong alternative when avoiding the gRPC dependency is preferred.
-* **gRPC String (bytes)** is a cautionary result: removing DDS does not automatically yield a speed advantage. Wrapping a 150 MB blob as a single protobuf `bytes` field negates the savings from bypassing middleware, landing at the same latency tier as ROS2 UInt8MultiArray. The Arrow columnar format—not gRPC itself—is responsible for the performance gains of Arrow Flight.
-* **ROS2 UInt8MultiArray** remains the best choice within the ROS 2 ecosystem. It matches gRPC String in raw latency while retaining all ecosystem benefits (topic introspection, launch files, bag recording, etc.).
+* **Arrow Flight** is the fastest method tested overall in both hardware configurations. It combines Apache Arrow's zero-copy columnar format with gRPC's efficient bidirectional streaming. Its advantage over ROS2 UInt8MultiArray grows from ~34% (X86+X86) to ~60% (X86+Jetson Nano), demonstrating that Arrow Flight is especially well-suited to constrained receivers.
+* **Arrow IPC + TCP** delivers nearly the same performance with a simpler stack (~24% faster on X86, ~54% faster on Jetson Nano). It is a strong alternative when avoiding the gRPC dependency is preferred.
+* **gRPC String (bytes)** is a cautionary result on X86 (no advantage over ROS2 UInt8MultiArray), but becomes meaningful on Jetson Nano (~38% faster). The DDS middleware cost—not just payload size—is the differentiating factor on constrained hardware.
+* **ROS2 UInt8MultiArray** remains the best choice within the ROS 2 ecosystem. On X86+X86 it matches gRPC String in raw latency while retaining all ecosystem benefits (topic introspection, launch files, bag recording, etc.). On Jetson Nano its relative position deteriorates significantly—non-ROS methods pull further ahead.
 
-**Recommendation:** If ROS 2 integration is not required and minimum latency is the priority, Arrow Flight over Ethernet is the optimal transport for 150 MB float32 tensor payloads between X86 machines. If a non-ROS gRPC-based solution is needed without the Arrow dependency, expect performance comparable to ROS2 UInt8MultiArray—not better.
+**Recommendation:** If ROS 2 integration is not required and minimum latency is the priority, Arrow Flight over Ethernet is the optimal transport for 150 MB float32 tensor payloads in both X86+X86 and X86+Jetson Nano configurations. The performance gap over ROS2 roughly doubles on constrained hardware, making the non-ROS investment especially worthwhile for edge deployments.
