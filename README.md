@@ -18,6 +18,56 @@ Network configuration for Ethernet-only experiments: all machines communicate vi
 
 ---
 
+## Network Baseline (iperf3)
+
+Raw network throughput was characterized using **iperf3** before any ROS 2 middleware overhead — establishing the available bandwidth ceiling for the two link types used in all experiments.
+
+Each dataset consists of repeated 30-second iperf3 runs between the same client/server pair used in the ROS 2 benchmarks:
+
+| Dataset | Source zip | Protocol | Valid runs |
+| :--- | :--- | :--- | :--- |
+| Ethernet UDP | `iperf_outputs.zip` | UDP | 100 |
+| Ethernet TCP | `iperf_tcp_outputs.zip` | TCP | 100 |
+| WiFi UDP | `wifi_iperf_outputs.zip` | UDP | 98 |
+| WiFi TCP | `wifi_iperf_outputs.zip` | TCP | 96 |
+
+### Ethernet
+
+> All machines connected to a Gigabit switch. Client IP `147.102.19.162` → Server IP `147.102.19.67`.
+
+| Protocol | Throughput sent (mean ± stdev) | Throughput recv (mean ± stdev) | RTT (mean) | Jitter (mean) | Packet loss | TCP retransmits |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **UDP** | 956.18 ± 0.25 Mbit/s | 956.15 ± 0.25 Mbit/s | — | 0.016 ms | 0.0004% | — |
+| **TCP** | 942.01 ± 0.20 Mbit/s | 941.35 ± 0.12 Mbit/s | 1.96 ms | — | — | 0 (zero) |
+
+The Ethernet link saturates at ~956 Mbit/s (UDP) / ~942 Mbit/s (TCP) with essentially no jitter, zero packet loss, and zero TCP retransmits across all 100 runs — a near-ideal Gigabit channel.
+
+### WiFi
+
+> Publisher machine on WiFi (`147.102.19.185`), server on Ethernet (`147.102.19.67`). This matches the WiFi experiment topology used in the ROS 2 benchmarks.
+
+| Protocol | Throughput sent (mean ± stdev) | Throughput recv (mean ± stdev) | RTT (mean) | Jitter (mean) | Packet loss (mean / max) | TCP retransmits (mean / max) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **UDP** | 138.75 ± 11.98 Mbit/s | 138.62 ± 11.90 Mbit/s | — | 0.11 ms | 0.065% / 0.48% | — |
+| **TCP** | 142.51 ± 13.62 Mbit/s | 141.68 ± 13.64 Mbit/s | 29.43 ms | — | — | 4.9 avg / 85 max |
+
+The WiFi link delivers ~140 Mbit/s on average but with high variability (stdev ~12–14 Mbit/s, min ~109 Mbit/s, max ~197 Mbit/s), a 15× higher RTT (29 ms vs 2 ms on Ethernet), and intermittent TCP retransmits (avg 4.9, max 85 per 30-second run).
+
+### Ethernet vs WiFi comparison
+
+| Metric | Ethernet | WiFi | Ratio |
+| :--- | :--- | :--- | :--- |
+| TCP throughput (mean) | 942 Mbit/s | 143 Mbit/s | **~6.6×** |
+| UDP throughput (mean) | 956 Mbit/s | 139 Mbit/s | **~6.9×** |
+| Throughput variability (stdev) | 0.2 Mbit/s | 12–14 Mbit/s | **~60–70×** |
+| RTT (mean) | 1.96 ms | 29.4 ms | **~15×** |
+| Jitter | 0.016 ms | 0.11 ms | **~7×** |
+| Packet loss | 0.0004% | 0.065% | **~163×** |
+
+The ~6.7× raw bandwidth gap between Ethernet and WiFi directly explains the ~4–6× increase in ROS 2 transfer latency observed in the benchmark results. The additional gap between raw bandwidth ratios and ROS 2 latency ratios is attributable to DDS fragmentation and discovery overhead — which scales poorly on lossy, high-RTT links.
+
+---
+
 ## Methods Compared
 
 ### ROS 2 (DDS / FastDDS middleware)
@@ -85,15 +135,19 @@ Both methods were tested on two payload shapes:
 
 ### Non-ROS alternatives (Ethernet only, 150 MB single array)
 
-| Method | X86 → X86 | X86 → Jetson Nano |
-| :--- | :--- | :--- |
-| **Arrow Flight (gRPC)** | **1.3901s** | **1.4472s** |
-| **Arrow IPC + TCP** | 1.6057s | 1.6648s |
-| **gRPC String (bytes)** | 2.1671s | 2.2333s |
-| ROS2 UInt8MultiArray *(reference)* | 2.1086s | 3.5886s |
-| ROS2 String (Base64) *(reference)* | 2.9777s | 5.0823s |
+Transfer speed in MB/s is computed as `payload_bytes / transfer_time`. The network ceiling is the iperf3 baseline for each method's transport: **118 MB/s (TCP)** for Arrow-based and gRPC methods, **120 MB/s (UDP)** for ROS2/DDS methods (FastDDS uses UDP by default).
 
-Non-ROS methods outperform all ROS 2 methods by bypassing DDS fragmentation and discovery overhead. Arrow Flight is the fastest overall. Notably, on the Jetson Nano the non-ROS advantage nearly doubles (Arrow Flight is ~34% faster than ROS2 Binary on X86, but ~60% faster on Jetson Nano), because DDS middleware degrades disproportionately on constrained ARM hardware while TCP/gRPC connections are largely unaffected.
+| Method | Transport | X86 → X86 | MB/s | X86 → Jetson Nano | MB/s |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Network ceiling | TCP | — | **118 MB/s** | — | **118 MB/s** |
+| Network ceiling | UDP | — | **120 MB/s** | — | **120 MB/s** |
+| **Arrow Flight (gRPC)** | TCP | **1.3901s** | **108 MB/s** | **1.4472s** | **104 MB/s** |
+| **Arrow IPC + TCP** | TCP | 1.6057s | 93 MB/s | 1.6648s | 90 MB/s |
+| **gRPC String (bytes)** | TCP | 2.1671s | 69 MB/s | 2.2333s | 67 MB/s |
+| ROS2 UInt8MultiArray *(reference)* | UDP | 2.1086s | 71 MB/s | 3.5886s | 42 MB/s |
+| ROS2 String (Base64) *(reference)* | UDP | 2.9777s | 67 MB/s | 5.0823s | 39 MB/s |
+
+**Arrow Flight moves data at 104–108 MB/s, just 10–14 MB/s short of what the raw link can carry** — the gap is pure protocol overhead (gRPC/HTTP2 framing + Arrow serialization). ROS2 on X86 reaches 67–71 MB/s (~60% of the link), and on the Jetson Nano drops to 39–42 MB/s (~33%), because DDS middleware degrades disproportionately on constrained ARM hardware while TCP/gRPC connections are largely unaffected.
 
 ---
 
@@ -133,6 +187,10 @@ Full per-experiment analysis, plots, and conclusions are in the two benchmark RE
 ├── README.md                          ← this file
 ├── README_wifi.md                     ← WiFi experiment details & plots
 ├── README_ethernet.md                 ← Ethernet experiment details & plots
+│
+├── iperf_outputs.zip                  ← iperf3 baseline: Ethernet UDP (100 runs)
+├── iperf_tcp_outputs.zip              ← iperf3 baseline: Ethernet TCP (100 runs)
+├── wifi_iperf_outputs.zip             ← iperf3 baseline: WiFi UDP + WiFi TCP (~98/96 runs)
 │
 ├── string/                            ← ROS2 String (Base64), single array
 ├── uint8multiarray/                   ← ROS2 UInt8MultiArray, single array
