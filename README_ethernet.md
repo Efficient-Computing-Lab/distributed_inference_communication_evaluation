@@ -163,6 +163,53 @@ Switching from X86+X86 to X86+Jetson Nano over Ethernet increases latency by ~70
 
 ---
 
+## BabyROS (Zenoh) Comparison — Single Array
+
+Adding [BabyROS](babyros/README.md) to this experiment. It keeps a ROS-style
+publisher/subscriber API but replaces DDS with Zenoh, and sends numpy arrays as raw bytes
+with a JSON manifest — no IDL, no Base64.
+
+| Method | X86 + X86 | X86 + Jetson Nano | Degradation on ARM |
+| :--- | :--- | :--- | :--- |
+| **BabyROS (Zenoh)** | **1.5900s** | **1.5842s** | **none** |
+| UInt8MultiArray (Binary) | 2.1086s | 3.5886s | +70% |
+| String (Base64) | 2.9777s | 5.0823s | +71% |
+
+Jitter (standard deviation):
+
+| Method | X86 + X86 | X86 + Jetson Nano |
+| :--- | :--- | :--- |
+| **BabyROS (Zenoh)** | **0.0069s** | **0.0133s** |
+| UInt8MultiArray (Binary) | 0.0279s | 0.1361s |
+| String (Base64) | 0.0288s | 0.1563s |
+
+BabyROS is 25% faster than the best ROS 2 method on X86+X86 and 56% faster on the Jetson
+Nano. The headline result is the third column: **BabyROS transfers to the Jetson Nano in
+the same time as to another X86** (1.5842s vs 1.5900s). Both ROS 2 methods slow by ~70% on
+ARM, because DDS middleware cost scales with receiver CPU. Zenoh's lighter stack does not
+show that dependency at all, which makes BabyROS especially suited to constrained
+receivers.
+
+It is also 4–10× steadier, holding a 0.0069s standard deviation on X86+X86.
+
+### Visualization Summary
+
+**X86 + X86**
+
+![Latency Boxplot](analysis/ethernet/plots_babyros/x86_machines/latency_boxplot.png)
+![Latency CDF](analysis/ethernet/plots_babyros/x86_machines/latency_cdf.png)
+![Latency Histogram](analysis/ethernet/plots_babyros/x86_machines/latency_histogram.png)
+![Latency vs Message ID](analysis/ethernet/plots_babyros/x86_machines/latency_vs_msg_id.png)
+
+**X86 + Jetson Nano**
+
+![Latency Boxplot](analysis/ethernet/plots_babyros/diff_machines/latency_boxplot.png)
+![Latency CDF](analysis/ethernet/plots_babyros/diff_machines/latency_cdf.png)
+![Latency Histogram](analysis/ethernet/plots_babyros/diff_machines/latency_histogram.png)
+![Latency vs Message ID](analysis/ethernet/plots_babyros/diff_machines/latency_vs_msg_id.png)
+
+---
+
 ## Final Conclusion
 
 Over Ethernet, **UInt8MultiArray (Binary)** is the mandatory choice for high-bandwidth ROS 2 applications in both hardware configurations:
@@ -341,6 +388,49 @@ Ethernet delivers ~3–6× lower latency over WiFi for the Jetson Nano scenario,
 
 ---
 
+## BabyROS (Zenoh) Comparison — List of Arrays
+
+| Method | X86 + X86 | X86 + Jetson Nano | Degradation on ARM |
+| :--- | :--- | :--- | :--- |
+| **BabyROS (Zenoh)** | **1.1397s** | **1.1378s** | **none** |
+| String (Base64) | 2.0153s | 3.3067s | +64% |
+| UInt8MultiArray (Binary) | 3.2343s | 4.1493s | +28% |
+
+Jitter (standard deviation):
+
+| Method | X86 + X86 | X86 + Jetson Nano |
+| :--- | :--- | :--- |
+| **BabyROS (Zenoh)** | **0.0094s** | **0.0121s** |
+| String (Base64) | 0.0276s | 0.1231s |
+| UInt8MultiArray (Binary) | 0.0222s | 0.1084s |
+
+This is where the **packing overhead tax** described above disappears entirely. BabyROS's
+NDDC wire format carries several arrays natively — each array's raw bytes are concatenated
+into the payload and a JSON manifest records each one's `{shape, dtype, offset, nbytes}`.
+There is no flattening into a contiguous `uint8` buffer, so the ~1.2s constant cost that
+makes UInt8MultiArray lose to String on this payload never arises.
+
+The result is 43% faster than String on X86+X86 and 66% faster on the Jetson Nano, and once
+again the ARM receiver costs nothing (1.1378s vs 1.1397s).
+
+### Visualization Summary
+
+**X86 + X86**
+
+![Latency Boxplot](analysis/ethernet/plots_babyros_2nd/x86_machines/latency_boxplot.png)
+![Latency CDF](analysis/ethernet/plots_babyros_2nd/x86_machines/latency_cdf.png)
+![Latency Histogram](analysis/ethernet/plots_babyros_2nd/x86_machines/latency_histogram.png)
+![Latency vs Message ID](analysis/ethernet/plots_babyros_2nd/x86_machines/latency_vs_msg_id.png)
+
+**X86 + Jetson Nano**
+
+![Latency Boxplot](analysis/ethernet/plots_babyros_2nd/diff_machines/latency_boxplot.png)
+![Latency CDF](analysis/ethernet/plots_babyros_2nd/diff_machines/latency_cdf.png)
+![Latency Histogram](analysis/ethernet/plots_babyros_2nd/diff_machines/latency_histogram.png)
+![Latency vs Message ID](analysis/ethernet/plots_babyros_2nd/diff_machines/latency_vs_msg_id.png)
+
+---
+
 ## Final Conclusion
 
 The list of numpy arrays benchmark over Ethernet reveals a nuanced, hardware-dependent picture:
@@ -437,9 +527,9 @@ Zenoh discovers peers by multicast on the same subnet. If that fails, set endpoi
 explicitly with `--listen tcp/0.0.0.0:7447` on the subscriber and
 `--connect tcp/<subscriber-ip>:7447` on the publisher.
 
-⚠️ **Check the delivery ratio for BabyROS before reporting latency** — local validation saw
-9 messages published and only 2 received at 150 MB. Compare row counts and raise
-`--depth` if they diverge:
+Delivery is worth a sanity check on any new run — a publisher count well above the
+subscriber count means messages were lost rather than the publisher simply outliving the
+subscriber:
 
 ```bash
 wc -l babyros/ethernet/x86_machines/*.csv

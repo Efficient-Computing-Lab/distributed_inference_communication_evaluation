@@ -12,16 +12,17 @@ DIM = 6125
 INTERVAL_SEC = 5.0
 
 
-def configure_session(listen=None, connect=None):
-    """Point this node at an explicit peer instead of relying on multicast.
+def configure_session(listen=None, connect=None, block_wait_sec=60.0):
+    """Build and install the Zenoh session config for this node.
+
+    Always applied, not only when endpoints are given: the transport tuning
+    below matters on every link.
 
     Built directly rather than via babyros.configure(), which maps --listen to
     'listen/endpoints/peer' — a key eclipse-zenoh 1.10 rejects as unknown. The
     two transport values mirror babyros.configure()'s own defaults and matter
     for 150 MB payloads.
     """
-    if not listen and not connect:
-        return
     cfg = zenoh.Config()
     if listen:
         cfg.insert_json5("listen/endpoints", json.dumps([listen]))
@@ -29,6 +30,14 @@ def configure_session(listen=None, connect=None):
         cfg.insert_json5("connect/endpoints", json.dumps([connect]))
     cfg.insert_json5("transport/link/tx/batch_size", "1048576")
     cfg.insert_json5("transport/link/rx/buffer_size", "209715200")
+    # How long a BLOCK-mode publisher may wait for queue space before Zenoh
+    # CLOSES the transport session. Stock Zenoh's default is well under the
+    # ~9 s a 150 MB payload needs over WiFi, so the link is torn down mid-run;
+    # rmw_zenoh raises this to 60 s for exactly the same reason.
+    cfg.insert_json5(
+        "transport/link/tx/queue/congestion_control/block/wait_before_close",
+        str(int(block_wait_sec * 1_000_000)),
+    )
     SessionManager.set_session_config(cfg)
 
 
@@ -38,13 +47,21 @@ def main():
                         help='Folder name to save the CSV logs')
     parser.add_argument('--topic', type=str, default='big_topic',
                         help='BabyROS topic name (must not start with "/")')
+    parser.add_argument('--allow-drop', action='store_true',
+                        help="Keep BabyROS's default DROP congestion control. "
+                             "Only for reproducing the message loss — normal "
+                             "runs should not set this")
+    parser.add_argument('--block-wait', type=float, default=60.0,
+                        help='Seconds a BLOCK publisher may wait for queue space '
+                             'before Zenoh closes the transport. Raise on very '
+                             'slow links')
     parser.add_argument('--listen', type=str, default=None,
                         help='Zenoh endpoint to listen on, e.g. tcp/0.0.0.0:7447')
     parser.add_argument('--connect', type=str, default=None,
                         help='Zenoh endpoint of the peer, e.g. tcp/147.102.19.67:7447')
     args = parser.parse_args()
 
-    configure_session(args.listen, args.connect)
+    configure_session(args.listen, args.connect, args.block_wait)
 
     os.makedirs(args.folder, exist_ok=True)
     csv_file = os.path.join(args.folder, "publisher_log.csv")
@@ -58,7 +75,20 @@ def main():
     # applies to telekinesis-datatypes). Setting it None documents that the
     # 150 MB goes on the wire raw, like the Arrow and raw-TCP benchmarks.
     pub = Publisher(topic=args.topic, compression=None)
-    print(f"BabyROS publisher on topic '{args.topic}'")
+
+    # BabyROS declares its Zenoh publisher without congestion_control, so the
+    # default DROP applies: a 150 MB payload overflows the tx queue and Zenoh
+    # silently discards the message. Re-declare with BLOCK so the publisher
+    # waits for the queue to drain instead. Without this, cross-machine
+    # delivery is ~0% and same-machine is ~20%.
+    if not args.allow_drop:
+        pub._pub.undeclare()
+        pub._pub = SessionManager.get_session().declare_publisher(
+            args.topic, congestion_control=zenoh.CongestionControl.BLOCK
+        )
+
+    mode = "DROP (default)" if args.allow_drop else "BLOCK"
+    print(f"BabyROS publisher on topic '{args.topic}' | congestion control: {mode}")
 
     msg_id = 0
     try:

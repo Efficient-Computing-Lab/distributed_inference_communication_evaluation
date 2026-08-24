@@ -221,6 +221,55 @@ Even with superior hardware, the binary method proves to be the most reliable fo
 
 ![CDF](analysis/wifi/plots/x86_machines/latency_cdf.png)
 
+## BabyROS (Zenoh) Comparison — Single Array
+
+Adding [BabyROS](babyros/README.md) to this experiment. It keeps a ROS-style
+publisher/subscriber API but replaces DDS with Zenoh, sending numpy arrays as raw bytes
+with a JSON manifest — no IDL, no Base64.
+
+| Method | X86 + X86 | X86 + Jetson Nano |
+| :--- | :--- | :--- |
+| **BabyROS (Zenoh)** | **6.0422s** | **5.3616s** |
+| UInt8MultiArray (Binary) | 8.6934s | 16.3764s |
+| String (Base64) | 11.0463s | 24.8816s |
+
+Jitter (standard deviation):
+
+| Method | X86 + X86 | X86 + Jetson Nano |
+| :--- | :--- | :--- |
+| **BabyROS (Zenoh)** | 2.3820s | **0.4881s** |
+| UInt8MultiArray (Binary) | 2.2182s | 4.3378s |
+| String (Base64) | 2.5777s | 5.2526s |
+
+BabyROS is 30% faster than the best ROS 2 method on X86+X86 and **67% faster** to the
+Jetson Nano. The Jetson result is the striking one: where both ROS 2 methods degrade
+sharply on the constrained receiver (UInt8MultiArray goes 8.69s → 16.38s, +88%), BabyROS
+actually posts its *best* WiFi figure at 5.36s. DDS middleware cost scales with receiver
+CPU on a lossy, high-RTT link; Zenoh's lighter stack does not.
+
+Stability follows the same pattern. On X86+X86 all three methods swing similarly (std
+2.2–2.6s) because the radio itself is the dominant source of variance. To the Jetson Nano
+BabyROS holds a **0.4881s** standard deviation against UInt8MultiArray's 4.3378s — roughly
+9× tighter, on a mean that is already 3× lower.
+
+### Visualization Summary
+
+**X86 + X86**
+
+![Latency Boxplot](analysis/wifi/plots_babyros/x86_machines/latency_boxplot.png)
+![Latency CDF](analysis/wifi/plots_babyros/x86_machines/latency_cdf.png)
+![Latency Histogram](analysis/wifi/plots_babyros/x86_machines/latency_histogram.png)
+![Latency vs Message ID](analysis/wifi/plots_babyros/x86_machines/latency_vs_msg_id.png)
+
+**X86 + Jetson Nano**
+
+![Latency Boxplot](analysis/wifi/plots_babyros/diff_machines/latency_boxplot.png)
+![Latency CDF](analysis/wifi/plots_babyros/diff_machines/latency_cdf.png)
+![Latency Histogram](analysis/wifi/plots_babyros/diff_machines/latency_histogram.png)
+![Latency vs Message ID](analysis/wifi/plots_babyros/diff_machines/latency_vs_msg_id.png)
+
+---
+
 ## Final Conclusion
 
 Across all three experiments, UInt8MultiArray (Binary) is the mandatory choice for high-bandwidth ROS 2 applications.
@@ -422,6 +471,44 @@ Even with identical, high-performance hardware on both ends, the binary method i
 * **CDF Plot:** Binary reaches ~95% completion by 9s and 100% by ~10s. String does not reach 90% until ~13s, confirming Binary’s superior determinism even on high-performance symmetric hardware.
 
 ![CDF](analysis/wifi/plots_2nd/x86_machines/latency_cdf.png)
+
+## BabyROS (Zenoh) Comparison — List of Arrays
+
+| Method | X86 + X86 | Std Dev |
+| :--- | :--- | :--- |
+| **UInt8MultiArray (Binary)** | **8.3911s** | **0.6709s** |
+| BabyROS (Zenoh) | 10.2884s | 1.2756s |
+| String (Base64) | 10.5983s | 1.3949s |
+
+**This is the one configuration in the entire repository where BabyROS does not win.**
+UInt8MultiArray completes in 8.39s against BabyROS's 10.29s — 23% faster — and is also the
+steadiest of the three.
+
+The explanation is the mirror image of the Ethernet result. On a fast link the dominant
+cost is the ~1.2s constant overhead of flattening four arrays into one contiguous `uint8`
+buffer, which BabyROS avoids entirely by carrying the arrays natively; that is why it wins
+Ethernet by 43–66%. Once the bottleneck becomes a ~140 Mbit/s radio, that packing cost is
+no longer significant relative to transfer time, and DDS's fragmentation strategy handles
+the lossy, high-RTT link more effectively than Zenoh's here.
+
+The measurement is stable rather than an artefact: latency was flat across the run
+(+0.035s from the first ten messages to the last ten), so no queue backlog was inflating
+it.
+
+### Visualization Summary
+
+**X86 + X86**
+
+![Latency Boxplot](analysis/wifi/plots_babyros_2nd/x86_machines/latency_boxplot.png)
+![Latency CDF](analysis/wifi/plots_babyros_2nd/x86_machines/latency_cdf.png)
+![Latency Histogram](analysis/wifi/plots_babyros_2nd/x86_machines/latency_histogram.png)
+![Latency vs Message ID](analysis/wifi/plots_babyros_2nd/x86_machines/latency_vs_msg_id.png)
+
+> The X86 + Jetson Nano configuration has not been collected for BabyROS on this payload
+> shape (`babyros_list_numpy_array/wifi/diff_machines/` has a publisher log but no
+> subscriber log), so it is absent from the table above.
+
+---
 
 ## Final Conclusion
 

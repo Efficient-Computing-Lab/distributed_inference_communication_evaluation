@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package string_comm_list;
+
+service DataStream {
+  rpc Stream (StreamRequest) returns (stream DataMessage);
+}
+
+message StreamRequest {}
+
+// `repeated bytes` carries the four arrays as separate fields rather than one
+// hand-packed buffer with a length header — the idiomatic protobuf mapping for
+// this payload, and the fair counterpart to Arrow's one-column-per-array form.
+message DataMessage {
+  int32           msg_id       = 1;
+  double          publish_time = 2;
+  repeated bytes  payloads     = 3;
+  string          message_type = 4;
+}

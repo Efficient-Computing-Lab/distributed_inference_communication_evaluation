@@ -190,3 +190,107 @@ make_non_ros_plots(
     pd.read_csv(f"{BASE}/arrow_ipc/ethernet/diff_machines/client_log.csv"),
     pd.read_csv(f"{BASE}/grpc_string/ethernet/diff_machines/subscriber_log.csv"),
 )
+
+
+# ============================================================================
+# BabyROS (Zenoh) vs the ROS 2 methods
+# ============================================================================
+# Self-contained N-series helper. The pairwise plotting above is hard-wired to
+# exactly two dataframes and this comparison needs three. It also auto-detects
+# the latency column: this repo uses "latency_sec" in some CSVs and "latency"
+# in others, and the two are not consistent between the wifi and ethernet runs
+# of the same method. Configurations that were never collected are skipped
+# rather than raising, so the script still runs on a partial dataset.
+
+REPO = os.path.dirname(os.path.abspath(__file__)) + "/.."
+_LAT_COLS = ("latency_sec", "latency")
+_MARKERS = ['o', 's', '^', 'D']
+
+
+def _load_run(path, label):
+    if not os.path.exists(path):
+        print(f"  skip {label}: {os.path.relpath(path, REPO)} not collected")
+        return None
+    df = pd.read_csv(path)
+    col = next((c for c in _LAT_COLS if c in df.columns), None)
+    if col is None:
+        print(f"  skip {label}: no latency column")
+        return None
+    lat = pd.to_numeric(df[col], errors="coerce").dropna()
+    return lat, df["msg_id"].iloc[:len(lat)], label
+
+
+def babyros_plots(out_dir, entries, subtitle):
+    runs = [r for r in (_load_run(p, l) for p, l in entries) if r is not None]
+    if len(runs) < 2:
+        print(f"  not enough data for {out_dir} — skipped\n")
+        return
+    os.makedirs(out_dir, exist_ok=True)
+
+    plt.figure(figsize=(10, 6))
+    for (lat, ids, label), mk in zip(runs, _MARKERS):
+        plt.plot(ids, lat, marker=mk, linestyle='-', markersize=4, label=label)
+    plt.xlabel("Message ID"); plt.ylabel("Latency (sec)")
+    plt.title(f"Latency vs Message ID — {subtitle}")
+    plt.legend(); plt.grid(True, which="both", ls="-", alpha=0.5)
+    plt.savefig(f"{out_dir}/latency_vs_msg_id.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+    plt.figure(figsize=(10, 6))
+    for lat, _, label in runs:
+        plt.hist(lat, bins=30, alpha=0.6, label=label)
+    plt.xlabel("Latency (sec)"); plt.ylabel("Frequency")
+    plt.title(f"Latency Distribution — {subtitle}")
+    plt.legend(); plt.grid(axis='y', alpha=0.3)
+    plt.savefig(f"{out_dir}/latency_histogram.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+    plt.figure(figsize=(8, 6))
+    plt.boxplot([lat for lat, _, _ in runs],
+                tick_labels=[label for _, _, label in runs],
+                patch_artist=True,
+                medianprops=dict(color="black", linewidth=2),
+                boxprops=dict(alpha=0.7))
+    plt.ylabel("Latency (sec)")
+    plt.title(f"Latency Comparison — {subtitle}")
+    plt.xticks(rotation=12)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.savefig(f"{out_dir}/latency_boxplot.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+    plt.figure(figsize=(10, 6))
+    for lat, _, label in runs:
+        srt = np.sort(lat)
+        plt.plot(srt, np.arange(1, len(srt) + 1) / len(srt), label=label, linewidth=2)
+    plt.xlabel("Latency (sec)"); plt.ylabel("CDF (Probability)")
+    plt.title(f"Cumulative Distribution of Latency — {subtitle}")
+    plt.legend(); plt.grid(True, alpha=0.3)
+    plt.savefig(f"{out_dir}/latency_cdf.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Saved plots to {out_dir}")
+    for lat, _, label in runs:
+        print(f"  {label:26} avg={lat.mean():8.4f}s  std={lat.std():.4f}  n={len(lat)}")
+    print()
+
+# ── Single 150 MB array ──────────────────────────────────────────────────────
+for pair, subtitle in [("x86_machines",  "X86 + X86, Ethernet, 150 MB array"),
+                       ("diff_machines", "X86 + Jetson Nano, Ethernet, 150 MB array")]:
+    babyros_plots(
+        f"ethernet/plots_babyros/{pair}",
+        [(f"{REPO}/uint8multiarray/ethernet/{pair}/subscriber_log.csv", "UInt8MultiArray (Binary)"),
+         (f"{REPO}/string/ethernet/{pair}/subscriber_log.csv",          "String (Base64)"),
+         (f"{REPO}/babyros/ethernet/{pair}/subscriber_log.csv",         "BabyROS (Zenoh)")],
+        subtitle,
+    )
+
+# ── List of arrays ───────────────────────────────────────────────────────────
+for pair, subtitle in [("x86_machines",  "X86 + X86, Ethernet, list of arrays"),
+                       ("diff_machines", "X86 + Jetson Nano, Ethernet, list of arrays")]:
+    babyros_plots(
+        f"ethernet/plots_babyros_2nd/{pair}",
+        [(f"{REPO}/uint8multiarray_list_numpy_array/ethernet/{pair}/subscriber_log.csv", "UInt8MultiArray (Binary)"),
+         (f"{REPO}/string_list_numpy_array/ethernet/{pair}/subscriber_log.csv",          "String (Base64)"),
+         (f"{REPO}/babyros_list_numpy_array/ethernet/{pair}/subscriber_log.csv",         "BabyROS (Zenoh)")],
+        subtitle,
+    )

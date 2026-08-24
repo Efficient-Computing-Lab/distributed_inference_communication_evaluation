@@ -8,16 +8,17 @@ import argparse
 import threading
 
 
-def configure_session(listen=None, connect=None):
-    """Point this node at an explicit peer instead of relying on multicast.
+def configure_session(listen=None, connect=None, block_wait_sec=60.0):
+    """Build and install the Zenoh session config for this node.
+
+    Always applied, not only when endpoints are given: the transport tuning
+    below matters on every link.
 
     Built directly rather than via babyros.configure(), which maps --listen to
     'listen/endpoints/peer' — a key eclipse-zenoh 1.10 rejects as unknown. The
     two transport values mirror babyros.configure()'s own defaults and matter
     for large payloads.
     """
-    if not listen and not connect:
-        return
     cfg = zenoh.Config()
     if listen:
         cfg.insert_json5("listen/endpoints", json.dumps([listen]))
@@ -25,6 +26,14 @@ def configure_session(listen=None, connect=None):
         cfg.insert_json5("connect/endpoints", json.dumps([connect]))
     cfg.insert_json5("transport/link/tx/batch_size", "1048576")
     cfg.insert_json5("transport/link/rx/buffer_size", "209715200")
+    # How long a BLOCK-mode publisher may wait for queue space before Zenoh
+    # CLOSES the transport session. Stock Zenoh's default is well under the
+    # ~9 s a 150 MB payload needs over WiFi, so the link is torn down mid-run;
+    # rmw_zenoh raises this to 60 s for exactly the same reason.
+    cfg.insert_json5(
+        "transport/link/tx/queue/congestion_control/block/wait_before_close",
+        str(int(block_wait_sec * 1_000_000)),
+    )
     SessionManager.set_session_config(cfg)
 
 
