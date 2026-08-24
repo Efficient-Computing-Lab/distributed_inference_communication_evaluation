@@ -88,6 +88,142 @@ Both methods were tested on two payload shapes:
 | **Arrow Flight (gRPC)** | gRPC / HTTP2 | Apache Arrow IPC (columnar) |
 | **Arrow IPC + TCP** | Raw TCP socket | Apache Arrow IPC (columnar) |
 | **gRPC String (bytes)** | gRPC / HTTP2 | Protobuf `bytes` field |
+| **BabyROS** | Zenoh | Raw numpy bytes + JSON manifest (NDAR/NDDC) |
+
+[BabyROS](babyros/README.md) keeps a ROS-style pub/sub API but replaces DDS with Zenoh.
+It is tested on both payload shapes (`babyros/`, `babyros_list_numpy_array/`).
+
+---
+
+## Running the Benchmarks
+
+Every method follows the same shape: **start the receiver first, then the sender.** Each
+side writes its own CSV into `--folder`, and latency is computed on the receiver.
+
+All commands below are run **from inside the method's directory**, so `--folder` reproduces
+the results tree (e.g. running `string/publisher.py` with `--folder wifi/x86_machines`
+creates `string/wifi/x86_machines/`).
+
+Let each run collect ~100 messages (5 s apart → ~9 minutes), then stop both sides with
+`Ctrl-C`.
+
+### Folder naming
+
+`--folder` encodes network and machine pair. The naming is **not** uniform across the repo —
+match these exactly to extend existing results:
+
+| Machine pair | Single-array methods | List-of-arrays & non-ROS methods |
+| :--- | :--- | :--- |
+| Publisher + subscriber on one X86 | `wifi/same_machine` | `wifi/same_machine` |
+| X86 → X86 | `wifi/x86_machines`, `ethernet/x86_machines` | same |
+| X86 → Jetson Nano | `wifi/diff_machine` ⚠️ *singular* | `wifi/diff_machines`, `ethernet/diff_machines` |
+
+### Environment
+
+| Method | Requirements |
+| :--- | :--- |
+| ROS2 (`string`, `uint8multiarray`, `*_list_numpy_array`) | ROS 2 Jazzy + `numpy` — `source /opt/ros/jazzy/setup.bash` |
+| `arrow_flight`, `arrow_ipc` | `conda env create -f arrow_flight/environment.yml` (numpy + pyarrow) |
+| `grpc_string` | `conda env create -f grpc_string/environment.yml` (`string_comm_pb2*.py` are pre-generated) |
+| `tcp_raw`, `nfs` | numpy only |
+| `babyros` | Python 3.11–3.12 venv — see [babyros/README.md](babyros/README.md) |
+| `analysis/` | `pip install -r analysis/requirements.txt` |
+
+### ROS 2 methods
+
+Both sides must share a `ROS_DOMAIN_ID`. Run the subscriber first:
+
+```bash
+cd uint8multiarray            # or: string, string_list_numpy_array,
+                              #     uint8multiarray_list_numpy_array
+export ROS_DOMAIN_ID=0
+
+python3 subscriber.py --folder ethernet/x86_machines   # receiver machine
+python3 publisher.py  --folder ethernet/x86_machines   # sender machine
+```
+
+`string/` and `uint8multiarray/` ship a `custom_fast_dds.xml` tuning profile (async publish,
+2 GB socket buffers) for pushing 150 MB over UDP. It is **not** applied automatically and no
+recorded result documents its use; to enable it, export the path before launching **both**
+sides:
+
+```bash
+export FASTRTPS_DEFAULT_PROFILES_FILE=$PWD/custom_fast_dds.xml
+```
+
+### Non-ROS methods
+
+Server first, then client. Replace `<server-ip>` with the sender's address:
+
+```bash
+# Arrow Flight (gRPC, port 8815)
+cd arrow_flight
+python3 server.py --folder ethernet/x86_machines
+python3 client.py --folder ethernet/x86_machines --host <server-ip>
+
+# Arrow IPC + TCP (port 9000)
+cd arrow_ipc
+python3 server.py --folder ethernet/x86_machines
+python3 client.py --folder ethernet/x86_machines --host <server-ip>
+
+# gRPC String (port 50051)
+cd grpc_string
+python3 server.py --folder ethernet/x86_machines
+python3 client.py --folder ethernet/x86_machines --host <server-ip>
+
+# BabyROS (Zenoh, auto-discovers peers on the same subnet)
+cd babyros
+python3 subscriber.py --folder ethernet/x86_machines
+python3 publisher.py  --folder ethernet/x86_machines
+```
+
+`arrow_ipc`, `arrow_flight`, `grpc_string` and `tcp_raw` all accept `--port` if the default
+is taken. `tcp_raw/` follows the same server/client pattern on port 9000.
+
+### NFS (out-of-band transfer)
+
+Sends only a notification over ROS 2; the array travels over the NFS mount. Both paths must
+point at the same share:
+
+```bash
+cd nfs
+python3 subscriber.py --folder ethernet/x86_machines --nfs-path /var/locally-mounted
+python3 publisher.py  --folder ethernet/x86_machines --nfs-path /mnt/myshareddir
+```
+
+### Network baseline (iperf3)
+
+Run on the machine that will host the publisher. Requires `iperf3` on both hosts and SSH
+access to the remote:
+
+```bash
+python3 udp_test.py --ip <remote-ip> --remote_user <remote-user> --trials 100 --duration 30
+python3 tcp_test.py --ip <remote-ip> --remote_user <remote-user> --trials 100 --duration 30
+```
+
+Each writes a timestamped folder with per-run JSON, both machines' specs, and `summary.json`.
+
+### Generating plots
+
+Run from inside `analysis/` — output paths are relative to the working directory:
+
+```bash
+cd analysis
+python3 plot_analysis.py            # WiFi  → wifi/plots/, wifi/plots_2nd/
+python3 plot_analysis_ethernet.py   # Ethernet → ethernet/plots{,_2nd,_non_ros}/
+```
+
+Both scripts read the subscriber CSVs directly and will fail if a configuration has not been
+collected yet.
+
+### Verifying a run
+
+Sent and received counts should match. A gap means messages were dropped and the latency
+figures are survivorship-biased:
+
+```bash
+wc -l <method>/<network>/<pair>/publisher_log.csv <method>/<network>/<pair>/subscriber_log.csv
+```
 
 ---
 
@@ -199,6 +335,8 @@ Full per-experiment analysis, plots, and conclusions are in the two benchmark RE
 ├── arrow_flight/                      ← Non-ROS: Arrow Flight (gRPC)
 ├── arrow_ipc/                         ← Non-ROS: Arrow IPC + TCP
 ├── grpc_string/                       ← Non-ROS: gRPC bytes
+├── babyros/                           ← Non-ROS: BabyROS (Zenoh), single array
+├── babyros_list_numpy_array/          ← Non-ROS: BabyROS (Zenoh), list of arrays
 │
 └── analysis/
     ├── plot_analysis.py               ← generates WiFi plots

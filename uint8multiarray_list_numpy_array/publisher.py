@@ -33,9 +33,14 @@ class ListPublisherUInt8(Node):
 
     def send(self):
         self.msg_id += 1
+
+        arrays = [np.random.rand(*s).astype(np.float32) for s in self.shapes]
+
+        # Stamped after data generation so latency measures the method
+        # (packing + DDS transport), not the harness's numpy RNG.
         publish_time = time.time()
 
-        byte_arrays = [np.random.rand(*s).astype(np.float32).tobytes() for s in self.shapes]
+        byte_arrays = [a.tobytes() for a in arrays]
         lengths = [len(b) for b in byte_arrays]
 
         header = struct.pack('=Id4I', self.msg_id, publish_time, *lengths)

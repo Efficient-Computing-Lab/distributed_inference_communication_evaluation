@@ -31,9 +31,13 @@ class DataStreamServicer(string_comm_pb2_grpc.DataStreamServicer):
         print("Client connected, starting stream...")
         while context.is_active():
             self.msg_id += 1
-            publish_time = time.time()
 
             arr = np.random.rand(DIM, DIM).astype(np.float32)
+
+            # Stamped after data generation so latency measures the method
+            # (protobuf framing + gRPC transport), not the harness's numpy RNG.
+            publish_time = time.time()
+
             payload = arr.tobytes()
 
             msg = string_comm_pb2.DataMessage(

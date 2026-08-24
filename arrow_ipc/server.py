@@ -30,9 +30,13 @@ def handle_client(conn, addr, csv_file):
 
         while True:
             msg_id += 1
-            publish_time = time.time()
 
             arr = np.random.rand(DIM, DIM).astype(np.float32)
+
+            # Stamped after data generation so latency measures the method
+            # (Arrow serialization + TCP transport), not the harness's numpy RNG.
+            # Matches arrow_flight/server.py, which stamps at send time.
+            publish_time = time.time()
 
             batch = pa.record_batch({
                 'data': pa.array([arr.tobytes()], type=pa.large_binary()),

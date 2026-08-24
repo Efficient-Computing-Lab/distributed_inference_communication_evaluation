@@ -31,10 +31,13 @@ class BigPublisher(Node):
 
     def send(self):
         self.msg_id += 1
-        publish_time = time.time()
 
         # 1. Create the 150MB float32 array
         arr = np.random.rand(self.dim, self.dim).astype(np.float32)
+
+        # Stamped after data generation so latency measures the method
+        # (serialization + DDS transport), not the harness's numpy RNG.
+        publish_time = time.time()
 
         # 2. Convert to raw bytes
         raw_bytes = arr.tobytes()

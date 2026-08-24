@@ -26,6 +26,65 @@ Calculate highest theoretical throughput achieved with raw UDP using [Iperf3](ht
 **TCP test [TODO]:**
 Calculate highest theoretical throughput achieved with raw TCP using [Iperf3](https://iperf.fr/). 
 - On the machine that would run the ROS publisher, run `python3 tcp_test.py --ip <remote host address> --remote_user <remote host name> --trials 100 --duration 30`. The script creates a timestamped folder, gathers and logs local and remote (through ssh) machine hardware specifications, runs iperf3 server on the remote host, and the iperf3 client locally (you might need to input your ssh credentials twice if you don't login with an ssh key).
+## How to Run These Experiments
+
+Start the **subscriber first**, then the publisher. Both sides need ROS 2 Jazzy sourced and
+the same `ROS_DOMAIN_ID`. Run from inside the method directory so `--folder` reproduces the
+results tree. Collect ~100 messages (5 s apart → ~9 min), then `Ctrl-C` both sides.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=0
+```
+
+**First Experiment** — publisher and subscriber on the same X86 machine, two terminals:
+
+```bash
+cd uint8multiarray                                  # then repeat in string/
+python3 subscriber.py --folder wifi/same_machine
+python3 publisher.py  --folder wifi/same_machine
+```
+
+**Second Experiment** — X86 publisher (WiFi) → Jetson Nano subscriber (Ethernet). Note the
+folder is `diff_machine`, **singular**, for the single-array methods:
+
+```bash
+# on the Jetson Nano
+cd uint8multiarray && python3 subscriber.py --folder wifi/diff_machine
+
+# on the X86 machine
+cd uint8multiarray && python3 publisher.py  --folder wifi/diff_machine
+```
+
+**Third Experiment** — X86 publisher (WiFi) → X86 subscriber (Ethernet):
+
+```bash
+# on the subscriber X86
+cd uint8multiarray && python3 subscriber.py --folder wifi/x86_machines
+
+# on the publisher X86
+cd uint8multiarray && python3 publisher.py  --folder wifi/x86_machines
+```
+
+Repeat each of the three for `string/` to get the comparison pair. Then generate the plots:
+
+```bash
+cd analysis && python3 plot_analysis.py
+```
+
+Before trusting any result, confirm nothing was dropped — the two counts should match:
+
+```bash
+wc -l uint8multiarray/wifi/x86_machines/*.csv
+```
+
+> **Note:** `string/` and `uint8multiarray/` contain a `custom_fast_dds.xml` tuning profile
+> for large UDP payloads. It is not loaded automatically; to use it, export
+> `FASTRTPS_DEFAULT_PROFILES_FILE=$PWD/custom_fast_dds.xml` on **both** sides before
+> launching.
+
+---
+
 ## First Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
 
@@ -199,6 +258,39 @@ self.shapes = [
 * **Payload:** ~150 MB (list of generated `float32` numpy arrays).
 * **Environment:** Publisher runs on X86 machine and Subscriber runs on another X86 machine.
 * **Network Type:** Local Network
+
+## How to Run These Experiments
+
+Same pattern as the single-array experiments above — subscriber first, matching
+`ROS_DOMAIN_ID`, run from inside the method directory. The methods here are
+`uint8multiarray_list_numpy_array/` and `string_list_numpy_array/`.
+
+⚠️ The folder for the Jetson Nano run is `diff_machines` (**plural**) in these list
+experiments, unlike the singular `diff_machine` used by the single-array ones.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=0
+cd uint8multiarray_list_numpy_array     # then repeat in string_list_numpy_array/
+
+# First  — both nodes on one X86 machine
+python3 subscriber.py --folder wifi/same_machine
+python3 publisher.py  --folder wifi/same_machine
+
+# Second — X86 publisher → Jetson Nano subscriber
+python3 subscriber.py --folder wifi/diff_machines     # on the Jetson
+python3 publisher.py  --folder wifi/diff_machines     # on the X86
+
+# Third  — X86 publisher → X86 subscriber
+python3 subscriber.py --folder wifi/x86_machines
+python3 publisher.py  --folder wifi/x86_machines
+```
+
+Plots for this set are written to `analysis/wifi/plots_2nd/` by the same script:
+
+```bash
+cd analysis && python3 plot_analysis.py
+```
 
 ## First Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.

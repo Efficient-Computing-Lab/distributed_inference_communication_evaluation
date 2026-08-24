@@ -31,9 +31,13 @@ class BigPublisher(Node):
 
     def send(self):
         self.msg_id += 1
-        publish_time = time.time()
 
         arr = np.random.rand(self.dim, self.dim).astype(np.float32)
+
+        # Stamped after data generation so latency measures the method
+        # (base64 + DDS transport), not the harness's numpy RNG.
+        publish_time = time.time()
+
         header = struct.pack('=Id', self.msg_id, publish_time)
         binary_payload = header + arr.tobytes()
         encoded_str = base64.b64encode(binary_payload).decode('utf-8')

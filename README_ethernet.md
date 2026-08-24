@@ -16,6 +16,52 @@ Both machines are connected to the network via **Ethernet** cable.
 
 ---
 
+## How to Run These Experiments
+
+Start the **subscriber first**, then the publisher. Both sides need ROS 2 Jazzy sourced and
+the same `ROS_DOMAIN_ID`. Run from inside the method directory so `--folder` reproduces the
+results tree. Collect ~100 messages (5 s apart → ~9 min), then `Ctrl-C` both sides.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=0
+```
+
+**First Experiment** — X86 publisher → X86 subscriber (`x86_machines`):
+
+```bash
+cd uint8multiarray                                    # then repeat in string/
+python3 subscriber.py --folder ethernet/x86_machines  # subscriber machine
+python3 publisher.py  --folder ethernet/x86_machines  # publisher machine
+```
+
+**Second Experiment** — X86 publisher → Jetson Nano subscriber (`diff_machines`):
+
+```bash
+cd uint8multiarray
+python3 subscriber.py --folder ethernet/diff_machines   # on the Jetson Nano
+python3 publisher.py  --folder ethernet/diff_machines   # on the X86 machine
+```
+
+Run both for `string/` as well to get the comparison pair, then plot:
+
+```bash
+cd analysis && python3 plot_analysis_ethernet.py
+```
+
+Confirm nothing was dropped — the two counts should match:
+
+```bash
+wc -l uint8multiarray/ethernet/x86_machines/*.csv
+```
+
+> **Note:** `string/` and `uint8multiarray/` contain a `custom_fast_dds.xml` tuning profile
+> for large UDP payloads. It is not loaded automatically; to use it, export
+> `FASTRTPS_DEFAULT_PROFILES_FILE=$PWD/custom_fast_dds.xml` on **both** sides before
+> launching.
+
+---
+
 ## First Experiment
 We compared **UInt8MultiArray** (Raw Binary) against **String Base64** (Text Encoding). The goal was to measure **Latency**—the total time from message publication to successful receipt and reconstruction.
 
@@ -152,6 +198,34 @@ self.shapes = [
 * **Payload:** ~150 MB (list of generated `float32` numpy arrays).
 * **Environment:** Publisher runs on one X86 machine and Subscriber runs on a Jetson Nano.
 * **Network Type:** Local Network (Ethernet)
+
+---
+
+## How to Run These Experiments
+
+Same pattern as above — subscriber first, matching `ROS_DOMAIN_ID`, run from inside the
+method directory. The methods here are `uint8multiarray_list_numpy_array/` and
+`string_list_numpy_array/`.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=0
+cd uint8multiarray_list_numpy_array     # then repeat in string_list_numpy_array/
+
+# First  — X86 publisher → X86 subscriber
+python3 subscriber.py --folder ethernet/x86_machines
+python3 publisher.py  --folder ethernet/x86_machines
+
+# Second — X86 publisher → Jetson Nano subscriber
+python3 subscriber.py --folder ethernet/diff_machines    # on the Jetson
+python3 publisher.py  --folder ethernet/diff_machines    # on the X86
+```
+
+Plots for this set go to `analysis/ethernet/plots_2nd/`:
+
+```bash
+cd analysis && python3 plot_analysis_ethernet.py
+```
 
 ---
 
@@ -296,6 +370,80 @@ This section benchmarks three non-ROS transport methods for transmitting the sam
 * **Payload:** 150 MB (randomly generated `float32` array).
 * **Environment:** Server runs on one X86 machine, client on a Jetson Nano.
 * **Network Type:** Local Network (Ethernet)
+
+---
+
+## How to Run These Experiments
+
+No ROS required. Start the **server first**, then the client, pointing it at the server's IP
+with `--host`. Each method uses its own port, so they can run concurrently if needed.
+
+Environments (once per machine):
+
+```bash
+conda env create -f arrow_flight/environment.yml   # numpy + pyarrow → arrow_flight, arrow_ipc
+conda env create -f grpc_string/environment.yml    # grpcio → grpc_string
+```
+
+`grpc_string/string_comm_pb2.py` and `..._pb2_grpc.py` are pre-generated from
+`string_comm.proto`; regenerate only if you change the proto.
+
+**First Experiment** — X86 server → X86 client (`ethernet/x86_machines`). Swap the folder to
+`ethernet/diff_machines` for the **Second Experiment** with the Jetson Nano as client:
+
+```bash
+# Arrow Flight — gRPC, port 8815
+cd arrow_flight
+python3 server.py --folder ethernet/x86_machines
+python3 client.py --folder ethernet/x86_machines --host <server-ip>
+
+# Arrow IPC + TCP — port 9000
+cd arrow_ipc
+python3 server.py --folder ethernet/x86_machines
+python3 client.py --folder ethernet/x86_machines --host <server-ip>
+
+# gRPC String (bytes) — port 50051
+cd grpc_string
+python3 server.py --folder ethernet/x86_machines
+python3 client.py --folder ethernet/x86_machines --host <server-ip>
+```
+
+All three accept `--port` if a default is taken. `tcp_raw/` follows the same server/client
+pattern on port 9000 and is a useful lower bound, though it is not in the results tables.
+
+Note the CSV names differ by method: Arrow Flight and Arrow IPC write
+`server_log.csv` / `client_log.csv`, while gRPC String writes
+`publisher_log.csv` / `subscriber_log.csv`.
+
+Plots for this set go to `analysis/ethernet/plots_non_ros/`:
+
+```bash
+cd analysis && python3 plot_analysis_ethernet.py
+```
+
+### BabyROS (Zenoh)
+
+BabyROS needs a Python 3.11–3.12 environment and **cannot be pip-installed on the Jetson
+Nano** used here — see [babyros/README.md](babyros/README.md) for the constraint and the
+container workaround.
+
+```bash
+cd babyros                        # or: babyros_list_numpy_array
+python3 subscriber.py --folder ethernet/x86_machines
+python3 publisher.py  --folder ethernet/x86_machines
+```
+
+Zenoh discovers peers by multicast on the same subnet. If that fails, set endpoints
+explicitly with `--listen tcp/0.0.0.0:7447` on the subscriber and
+`--connect tcp/<subscriber-ip>:7447` on the publisher.
+
+⚠️ **Check the delivery ratio for BabyROS before reporting latency** — local validation saw
+9 messages published and only 2 received at 150 MB. Compare row counts and raise
+`--depth` if they diverge:
+
+```bash
+wc -l babyros/ethernet/x86_machines/*.csv
+```
 
 ---
 
