@@ -259,19 +259,29 @@ wc -l <method>/<network>/<pair>/publisher_log.csv <method>/<network>/<pair>/subs
 
 ### List of numpy arrays (~150 MB)
 
-| Configuration | Network | UInt8MultiArray | String (Base64) | BabyROS (Zenoh) | Arrow Flight | Winner |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Same machine (X86) | — | 2.4251s | **1.2436s** | — | — | String ~49% faster |
-| X86 → Jetson Nano | WiFi | **12.9736s** | 18.7159s | not collected | not collected | Binary ~31% faster |
-| X86 → X86 | WiFi | **8.3911s** | 10.5983s | 10.2884s | not collected | Binary ~23% faster |
-| X86 → Jetson Nano | Ethernet | 4.1493s | 3.3067s | 1.1378s | **1.0294s** | Arrow Flight ~9.5% faster |
-| X86 → X86 | Ethernet | 3.2343s | 2.0153s | **1.1397s** | not collected | BabyROS ~43% faster |
+| Configuration | Network | UInt8MultiArray | String (Base64) | BabyROS | Arrow Flight | Arrow IPC | Winner |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Same machine (X86) | — | 2.4251s | **1.2436s** | — | — | — | String ~49% faster |
+| X86 → Jetson Nano | WiFi | **12.9736s** | 18.7159s | not collected | not collected | not collected | Binary ~31% faster |
+| X86 → X86 | WiFi | **8.3911s** | 10.5983s | 10.2884s | not collected | not collected | Binary ~23% faster |
+| X86 → Jetson Nano | Ethernet | 4.1493s | 3.3067s | 1.1378s | 1.0294s | **0.9968s** | Arrow IPC ~3.2% faster |
+| X86 → X86 | Ethernet | 3.2343s | 2.0153s | 1.1397s | 1.0300s | **0.9646s** | Arrow IPC ~6.3% faster |
+
+**Arrow IPC + TCP wins both Ethernet list configurations** — 102.5 MB/s on X86→X86 with a
+0.0060s standard deviation, the tightest distribution anywhere in this repository. The
+simplest transport wins here: at 98.84 MB the payload is small enough that gRPC/HTTP2
+framing overhead stops being amortised, and a raw socket carrying Arrow IPC beats both
+Arrow Flight and Zenoh.
+
+All four non-ROS methods on these two rows stamp `publish_time` identically (after data
+generation, before serialization), so this is the only strictly like-for-like comparison in
+the repository.
 
 > The non-ROS methods were originally benchmarked only on the single-array payload.
 > `arrow_flight_list_numpy_array/`, `arrow_ipc_list_numpy_array/` and
-> `grpc_string_list_numpy_array/` now exist to close that gap; so far only Arrow Flight on
-> `ethernet/diff_machines` has been collected. Where a cell reads *not collected*, the
-> winner shown is the best of the methods that were measured.
+> `grpc_string_list_numpy_array/` close that gap. Arrow Flight and Arrow IPC are collected
+> for both Ethernet pairs; gRPC and all WiFi cells are still outstanding. Where a cell reads
+> *not collected*, the winner shown is the best of the methods that were measured.
 
 **The winner depends on network speed.** When the link is fast enough (same machine or Ethernet), the constant packing overhead of assembling multiple array chunks into a single flat UInt8MultiArray message (~1.2s) dominates, and String wins. When the network is slower (WiFi cross-machine), the 33% payload reduction of Binary overcomes the packing cost and Binary wins. The crossover point sits between WiFi and Ethernet bandwidth for this payload size.
 
@@ -298,6 +308,10 @@ Transfer speed in MB/s is computed as `payload_bytes / transfer_time`. The netwo
 
 **BabyROS is the only method whose throughput does not change with the receiver** — 94 MB/s to an X86 and 95 MB/s to the Jetson Nano. Every other method loses ground on ARM (Arrow Flight 108 → 104, Arrow IPC 93 → 90, ROS2 71 → 42). It ranks second overall on X86 and second on the Jetson, while being the only non-ROS option here that keeps a publisher/subscriber API.
 
+> **This table is the single 150 MB array only.** On the ~99 MB list payload the ranking
+> inverts — Arrow IPC + TCP leads at 102.5 MB/s, ahead of Arrow Flight. See the list results
+> above.
+>
 > Two measurement caveats when reading this table. Arrow Flight stamps its send time *after* building the Arrow batch, so it excludes ~0.12–0.18s of serialization that Arrow IPC and BabyROS both include — the real gap between the top three is smaller than it appears. And the two ROS2 rows were collected before the timing convention was unified, so they still include ~0.376s of payload generation; corrected, UInt8MultiArray on X86 lands nearer 1.73s (87 MB/s).
 
 ---
@@ -324,42 +338,52 @@ Full per-experiment analysis, plots, and conclusions are in the two benchmark RE
 *Same-machine results are excluded throughout this section — they measure loopback, not a
 network, and nothing here is intended for two processes on one host.*
 
-**Arrow Flight and BabyROS are tied on wins, but Arrow Flight leads every configuration
-where the two were measured head to head.** Choose between them on API, not speed.
+**Arrow IPC + TCP is the fastest method on Ethernet; on WiFi, nothing non-ROS has been
+measured yet.** There is no single best option across all links.
 
 Across the eight cross-machine configurations:
 
 | Method | Configurations won |
 | :--- | :--- |
-| **Arrow Flight (gRPC)** | **3 of 8** — both Ethernet single-tensor cases, Ethernet list to the Jetson |
-| **BabyROS (Zenoh)** | **3 of 8** — Ethernet list to X86, both WiFi single-tensor cases |
+| **Arrow IPC + TCP** | **2 of 8** — both Ethernet list cases |
+| **Arrow Flight (gRPC)** | **2 of 8** — both Ethernet single-tensor cases |
+| **BabyROS (Zenoh)** | **2 of 8** — both WiFi single-tensor cases |
 | UInt8MultiArray | 2 — both WiFi list cases |
 | String (Base64) | **0** |
 
-Where both were run, Arrow Flight won all three — and the cleanest of those is the Ethernet
-list to the Jetson (1.0294 s vs 1.1378 s, 9.5%), because both methods stamp `publish_time`
-the same way there. The two single-tensor comparisons flatter Arrow Flight, since its
-number excludes ~0.12–0.18 s of Arrow serialization that BabyROS includes.
+The Ethernet list results are the most trustworthy comparison in the repository: Arrow IPC,
+Arrow Flight and BabyROS all stamp `publish_time` identically there, so nothing is
+flattered by measurement asymmetry.
 
-BabyROS's remaining strengths are real but narrower: it keeps a publisher/subscriber API
-instead of a request/stream client, it has the lowest jitter of anything measured
-(0.0069–0.0133 s on Ethernet against 0.02–0.16 s for ROS 2), and its performance is
-independent of the receiver (94 MB/s to an X86, 95 MB/s to a Jetson Nano). Arrow Flight
-shares that last property — 96.0 MB/s to the Jetson on the list payload.
+| Ethernet, list of arrays | X86 → X86 | X86 → Jetson |
+| :--- | ---: | ---: |
+| **Arrow IPC + TCP** | **0.9646s** (std 0.0060) | **0.9968s** (std 0.0535) |
+| Arrow Flight (gRPC) | 1.0300s (std 0.0094) | 1.0294s (std 0.0134) |
+| BabyROS (Zenoh) | 1.1397s (std 0.0094) | 1.1378s (std 0.0121) |
 
-**Two of BabyROS's three wins are uncontested rather than earned.** No non-ROS method has
-been benchmarked on WiFi at all, and Arrow Flight has not yet been run on the Ethernet list
-to X86. Collecting those would settle whether this is a tie or an Arrow Flight lead.
+Arrow IPC reaches 102.5 MB/s against a 118 MB/s TCP ceiling — 87% of the link — with the
+tightest distribution measured anywhere here. The lesson is that protocol overhead stops
+paying for itself as payloads shrink: at 98.84 MB a raw socket carrying Arrow IPC beats
+gRPC/HTTP2 framing, reversing the single-array result where Arrow Flight led.
 
-**String (Base64) wins nothing over a network.** Its only win in the whole dataset was
-same-machine, where no bytes cross an interface and the 33% inflation costs nothing. Once a
-link is involved it loses every configuration, on both payload shapes.
+**Caveat on the single-tensor rows.** Arrow Flight's 1.3901s/1.4472s exclude ~0.12–0.18s of
+Arrow serialization that every other method includes, so its two wins there are not
+like-for-like. On a common basis it lands near BabyROS's 1.5900s.
+
+**BabyROS's two wins are uncontested.** No non-ROS method has been benchmarked on WiFi at
+all — the link where BabyROS beats ROS 2 by 30–67%. Until Arrow IPC and Arrow Flight are run
+there, "BabyROS is best on WiFi" means only "best of the three methods measured on WiFi".
+
+BabyROS remains the pick when you want a publisher/subscriber API rather than a
+request/stream client: both Arrow methods require the receiver to open a stream, and neither
+offers topic-based pub/sub.
 
 **Take one of the two exceptions instead when:**
 
 | Condition | Use | Margin over BabyROS |
 | :--- | :--- | :--- |
-| Single tensor, Ethernet, pub/sub not required | **Arrow Flight** | 9–13% faster |
+| List of arrays, Ethernet | **Arrow IPC + TCP** | 15% faster |
+| Single tensor, Ethernet, pub/sub not required | **Arrow Flight** | 9–13% faster (see caveat) |
 | List of arrays over WiFi | **UInt8MultiArray** | 23% faster |
 
 And one hard constraint before choosing it: BabyROS requires Python 3.11–3.12 and
@@ -371,7 +395,7 @@ glibc ≥ 2.28, which **rules out a stock Jetson Nano** without a container.
 | :--- | :--- | :--- |
 | You **must** run inside ROS 2 (bags, launch files, introspection) | **UInt8MultiArray**, except a list of arrays on a fast link → **String (Base64)** | Only these two are actual ROS 2 message types |
 | You want pub/sub semantics but **not** DDS | **BabyROS (Zenoh)** | Fastest ROS-style API tested; the only method immune to a slow receiver |
-| You need raw minimum latency and no pub/sub | **Arrow Flight (gRPC)** | Fastest overall at 104–108 MB/s, ~90% of the link ceiling |
+| You need raw minimum latency and no pub/sub | **Arrow IPC + TCP** for a list of arrays, **Arrow Flight** for a single tensor | Arrow IPC hits 102.5 MB/s on the list payload with the tightest jitter measured |
 | Your receiver is **ARM / constrained** | **BabyROS** or **Arrow Flight** | Both hold ~95–104 MB/s on the Jetson; ROS 2 collapses to 39–42 MB/s |
 | Your link is **WiFi or lossy** | **BabyROS** for a single tensor, **UInt8MultiArray** for a list | The only case where the two payload shapes disagree |
 
@@ -392,13 +416,12 @@ Measured winner in each cell, with the runner-up for context.
 
 | Configuration | Best | Runner-up | Margin |
 | :--- | :--- | :--- | :--- |
-| X86 → X86, Ethernet | **BabyROS** 1.1397s | String 2.0153s | 43% |
-| X86 → Jetson, Ethernet | **Arrow Flight** 1.0294s | BabyROS 1.1378s | 9.5% |
+| X86 → X86, Ethernet | **Arrow IPC + TCP** 0.9646s | Arrow Flight 1.0300s | 6.3% |
+| X86 → Jetson, Ethernet | **Arrow IPC + TCP** 0.9968s | Arrow Flight 1.0294s | 3.2% |
 | X86 → X86, WiFi | **UInt8MultiArray** 8.3911s | BabyROS 10.2884s | 23% |
 | X86 → Jetson, WiFi | **UInt8MultiArray** 12.9736s | String 18.7159s | 31% |
 
-*Arrow Flight has only been collected for `ethernet/diff_machines` on this payload — the
-other three rows have no non-ROS entry yet.*
+*The two WiFi rows have no non-ROS entry — Arrow and gRPC have never been run on WiFi.*
 
 Read down the WiFi rows and the pattern is the whole story: BabyROS takes both single-tensor
 cases by 30–67%, and loses both list cases by 23%. Payload shape decides the WiFi winner;
@@ -408,7 +431,7 @@ on Ethernet it does not.
 
 **1. Base64 costs 33% and never pays for itself over a network.** String does not win a single cross-machine configuration on either payload shape. Its best result is second place on the Ethernet list cases, where it beats `UInt8MultiArray` only because its rival pays a worse penalty (rule 2) — and both still lose to BabyROS by 43–66%.
 
-**2. Flattening a list into one buffer costs a flat ~1.2s.** `UInt8MultiArray` must pack four arrays into one contiguous `uint8` buffer. On Ethernet that constant dominates and it falls behind String; on WiFi the transfer time dwarfs it and Binary comes back to win both list cases. BabyROS avoids the cost entirely — its NDDC format carries several arrays natively, each keeping its own shape and dtype — which is why it takes the Ethernet list cases outright.
+**2. Flattening a list into one buffer costs a flat ~1.2s.** `UInt8MultiArray` must pack four arrays into one contiguous `uint8` buffer. On Ethernet that constant dominates and it falls behind String; on WiFi the transfer time dwarfs it and Binary comes back to win both list cases. BabyROS avoids the cost entirely — its NDDC format carries several arrays natively, each keeping its own shape and dtype — which is why it beats both ROS 2 methods by 43–66% there — though Arrow IPC and Arrow Flight, which are equally free of it, are faster still.
 
 **3. DDS scales with receiver CPU; Zenoh and TCP do not.** Moving from an X86 to a Jetson Nano costs ROS 2 about 70% (2.11s → 3.59s) but costs BabyROS nothing measurable (1.5900s → 1.5842s) and Arrow Flight ~4%. This is the single largest effect in the dataset, and it decides every edge-hardware recommendation above.
 
@@ -456,5 +479,6 @@ on Ethernet it does not.
     ├── ethernet/plots_2nd/            ← list of arrays Ethernet plots
     ├── ethernet/plots_non_ros/        ← non-ROS Ethernet plots
     ├── {wifi,ethernet}/plots_babyros/     ← BabyROS vs ROS2, single array
+    ├── ethernet/plots_list_non_ros/   ← Arrow IPC vs Flight vs BabyROS, list
     └── {wifi,ethernet}/plots_babyros_2nd/ ← BabyROS vs ROS2, list of arrays
 ```

@@ -294,3 +294,17 @@ for pair, subtitle in [("x86_machines",  "X86 + X86, Ethernet, list of arrays"),
          (f"{REPO}/babyros_list_numpy_array/ethernet/{pair}/subscriber_log.csv",         "BabyROS (Zenoh)")],
         subtitle,
     )
+
+# ── List of arrays: non-ROS methods head to head ─────────────────────────────
+# All four stamp publish_time the same way (after generation, before
+# serialization), so this is the only strictly like-for-like comparison here.
+for pair, subtitle in [("x86_machines",  "X86 + X86, Ethernet, list of arrays"),
+                       ("diff_machines", "X86 + Jetson Nano, Ethernet, list of arrays")]:
+    babyros_plots(
+        f"ethernet/plots_list_non_ros/{pair}",
+        [(f"{REPO}/arrow_ipc_list_numpy_array/ethernet/{pair}/client_log.csv",     "Arrow IPC + TCP"),
+         (f"{REPO}/arrow_flight_list_numpy_array/ethernet/{pair}/client_log.csv",  "Arrow Flight (gRPC)"),
+         (f"{REPO}/babyros_list_numpy_array/ethernet/{pair}/subscriber_log.csv",   "BabyROS (Zenoh)"),
+         (f"{REPO}/grpc_string_list_numpy_array/ethernet/{pair}/client_log.csv",   "gRPC (repeated bytes)")],
+        subtitle,
+    )
