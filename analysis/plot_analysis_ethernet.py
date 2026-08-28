@@ -204,7 +204,7 @@ make_non_ros_plots(
 
 REPO = os.path.dirname(os.path.abspath(__file__)) + "/.."
 _LAT_COLS = ("latency_sec", "latency")
-_MARKERS = ['o', 's', '^', 'D']
+_MARKERS = ['o', 's', '^', 'D', 'v', 'P']
 
 
 def _load_run(path, label):
@@ -273,38 +273,30 @@ def babyros_plots(out_dir, entries, subtitle):
         print(f"  {label:26} avg={lat.mean():8.4f}s  std={lat.std():.4f}  n={len(lat)}")
     print()
 
-# ── Single 150 MB array ──────────────────────────────────────────────────────
-for pair, subtitle in [("x86_machines",  "X86 + X86, Ethernet, 150 MB array"),
-                       ("diff_machines", "X86 + Jetson Nano, Ethernet, 150 MB array")]:
+# ── All six methods, single 150 MB array ─────────────────────────────────────
+for pair, sub in [("x86_machines",  "X86 + X86, Ethernet, one 150 MB block"),
+                  ("diff_machines", "X86 + Jetson Nano, Ethernet, one 150 MB block")]:
     babyros_plots(
-        f"ethernet/plots_babyros/{pair}",
-        [(f"{REPO}/uint8multiarray/ethernet/{pair}/subscriber_log.csv", "UInt8MultiArray (Binary)"),
-         (f"{REPO}/string/ethernet/{pair}/subscriber_log.csv",          "String (Base64)"),
-         (f"{REPO}/babyros/ethernet/{pair}/subscriber_log.csv",         "BabyROS (Zenoh)")],
-        subtitle,
+        f"ethernet/plots_all/{pair}",
+        [(f"{REPO}/arrow_ipc/ethernet/{pair}/client_log.csv",           "Arrow IPC + TCP"),
+         (f"{REPO}/arrow_flight/ethernet/{pair}/client_log.csv",        "Arrow Flight (gRPC)"),
+         (f"{REPO}/babyros/ethernet/{pair}/subscriber_log.csv",         "BabyROS (Zenoh)"),
+         (f"{REPO}/uint8multiarray/ethernet/{pair}/subscriber_log.csv", "ROS2 UInt8MultiArray"),
+         (f"{REPO}/grpc_string/ethernet/{pair}/subscriber_log.csv",     "gRPC String (bytes)"),
+         (f"{REPO}/string/ethernet/{pair}/subscriber_log.csv",          "ROS2 String (Base64)")],
+        sub,
     )
 
-# ── List of arrays ───────────────────────────────────────────────────────────
-for pair, subtitle in [("x86_machines",  "X86 + X86, Ethernet, list of arrays"),
-                       ("diff_machines", "X86 + Jetson Nano, Ethernet, list of arrays")]:
+# ── All six methods, four blocks totalling 98.84 MB ──────────────────────────
+for pair, sub in [("x86_machines",  "X86 + X86, Ethernet, four blocks"),
+                  ("diff_machines", "X86 + Jetson Nano, Ethernet, four blocks")]:
     babyros_plots(
-        f"ethernet/plots_babyros_2nd/{pair}",
-        [(f"{REPO}/uint8multiarray_list_numpy_array/ethernet/{pair}/subscriber_log.csv", "UInt8MultiArray (Binary)"),
-         (f"{REPO}/string_list_numpy_array/ethernet/{pair}/subscriber_log.csv",          "String (Base64)"),
-         (f"{REPO}/babyros_list_numpy_array/ethernet/{pair}/subscriber_log.csv",         "BabyROS (Zenoh)")],
-        subtitle,
-    )
-
-# ── List of arrays: non-ROS methods head to head ─────────────────────────────
-# All four stamp publish_time the same way (after generation, before
-# serialization), so this is the only strictly like-for-like comparison here.
-for pair, subtitle in [("x86_machines",  "X86 + X86, Ethernet, list of arrays"),
-                       ("diff_machines", "X86 + Jetson Nano, Ethernet, list of arrays")]:
-    babyros_plots(
-        f"ethernet/plots_list_non_ros/{pair}",
-        [(f"{REPO}/arrow_ipc_list_numpy_array/ethernet/{pair}/client_log.csv",     "Arrow IPC + TCP"),
-         (f"{REPO}/arrow_flight_list_numpy_array/ethernet/{pair}/client_log.csv",  "Arrow Flight (gRPC)"),
-         (f"{REPO}/babyros_list_numpy_array/ethernet/{pair}/subscriber_log.csv",   "BabyROS (Zenoh)"),
-         (f"{REPO}/grpc_string_list_numpy_array/ethernet/{pair}/client_log.csv",   "gRPC (repeated bytes)")],
-        subtitle,
+        f"ethernet/plots_all_2nd/{pair}",
+        [(f"{REPO}/arrow_ipc_list_numpy_array/ethernet/{pair}/client_log.csv",              "Arrow IPC + TCP"),
+         (f"{REPO}/arrow_flight_list_numpy_array/ethernet/{pair}/client_log.csv",           "Arrow Flight (gRPC)"),
+         (f"{REPO}/babyros_list_numpy_array/ethernet/{pair}/subscriber_log.csv",            "BabyROS (Zenoh)"),
+         (f"{REPO}/grpc_string_list_numpy_array/ethernet/{pair}/client_log.csv",            "gRPC (repeated bytes)"),
+         (f"{REPO}/string_list_numpy_array/ethernet/{pair}/subscriber_log.csv",             "ROS2 String (Base64)"),
+         (f"{REPO}/uint8multiarray_list_numpy_array/ethernet/{pair}/subscriber_log.csv",    "ROS2 UInt8MultiArray")],
+        sub,
     )
