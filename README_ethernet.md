@@ -183,14 +183,17 @@ Jitter (standard deviation):
 | UInt8MultiArray (Binary) | 0.0279s | 0.1361s |
 | String (Base64) | 0.0288s | 0.1563s |
 
-BabyROS is 25% faster than the best ROS 2 method on X86+X86 and 56% faster on the Jetson
-Nano. The headline result is the third column: **BabyROS transfers to the Jetson Nano in
-the same time as to another X86** (1.5842s vs 1.5900s). Both ROS 2 methods slow by ~70% on
-ARM, because DDS middleware cost scales with receiver CPU. Zenoh's lighter stack does not
-show that dependency at all, which makes BabyROS especially suited to constrained
-receivers.
+BabyROS is **25% faster** than the best ROS 2 method between two PCs (1.5900s vs 2.1086s),
+and **56% faster** when sending to the Jetson Nano (1.5842s vs 3.5886s).
 
-It is also 4–10× steadier, holding a 0.0069s standard deviation on X86+X86.
+The most striking part is the third column. **BabyROS takes the same time to reach the small
+Jetson board as it does to reach a full PC** — 1.5842s against 1.5900s. Both ROS 2 methods
+slow down by about 70% on the Jetson, because ROS 2 makes the receiver do a lot of work and
+the small board cannot keep up. BabyROS asks much less of the receiver, so it barely notices
+which machine is on the other end. That makes it a good fit for small devices.
+
+Its timings are also far steadier: they vary by only ±0.0069s between PCs, where ROS 2
+varies by ±0.0279s — about four times more.
 
 ### Visualization Summary
 
@@ -404,14 +407,14 @@ Jitter (standard deviation):
 | String (Base64) | 0.0276s | 0.1231s |
 | UInt8MultiArray (Binary) | 0.0222s | 0.1084s |
 
-This is where the **packing overhead tax** described above disappears entirely. BabyROS's
-NDDC wire format carries several arrays natively — each array's raw bytes are concatenated
-into the payload and a JSON manifest records each one's `{shape, dtype, offset, nbytes}`.
-There is no flattening into a contiguous `uint8` buffer, so the ~1.2s constant cost that
-makes UInt8MultiArray lose to String on this payload never arises.
+This is where the **~1.2s gluing cost** described above disappears completely. BabyROS can
+send the four blocks as they are, noting each one's size and shape alongside them, so it
+never has to copy them into a single strip. That is the cost which makes UInt8MultiArray
+(3.2343s) lose to String (2.0153s) on this test.
 
-The result is 43% faster than String on X86+X86 and 66% faster on the Jetson Nano, and once
-again the ARM receiver costs nothing (1.1378s vs 1.1397s).
+The result: BabyROS finishes in **1.1397s**, 43% faster than String between PCs, and
+**1.1378s** to the Jetson — 66% faster than String's 3.3067s. Once again the small board
+costs it nothing (1.1378s vs 1.1397s).
 
 ### Visualization Summary
 

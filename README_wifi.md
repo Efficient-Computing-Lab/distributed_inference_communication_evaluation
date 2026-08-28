@@ -241,16 +241,19 @@ Jitter (standard deviation):
 | UInt8MultiArray (Binary) | 2.2182s | 4.3378s |
 | String (Base64) | 2.5777s | 5.2526s |
 
-BabyROS is 30% faster than the best ROS 2 method on X86+X86 and **67% faster** to the
-Jetson Nano. The Jetson result is the striking one: where both ROS 2 methods degrade
-sharply on the constrained receiver (UInt8MultiArray goes 8.69s → 16.38s, +88%), BabyROS
-actually posts its *best* WiFi figure at 5.36s. DDS middleware cost scales with receiver
-CPU on a lossy, high-RTT link; Zenoh's lighter stack does not.
+BabyROS is **30% faster** than the best ROS 2 method between PCs (6.0422s vs 8.6934s), and
+**67% faster** to the Jetson Nano (5.3616s vs 16.3764s).
 
-Stability follows the same pattern. On X86+X86 all three methods swing similarly (std
-2.2–2.6s) because the radio itself is the dominant source of variance. To the Jetson Nano
-BabyROS holds a **0.4881s** standard deviation against UInt8MultiArray's 4.3378s — roughly
-9× tighter, on a mean that is already 3× lower.
+The Jetson number is the surprising one. Both ROS 2 methods get much worse on the small
+board — UInt8MultiArray goes from 8.69s to 16.38s, nearly double. BabyROS goes the other
+way and records its *best* WiFi time there, 5.36s. WiFi loses far more packets than a cable,
+and ROS 2 makes the receiver do the work of sorting that out; the small board cannot keep
+up. BabyROS asks much less of it.
+
+Steadiness tells the same story. Between PCs all three methods wobble by a similar amount
+(±2.2–2.6s) because the WiFi signal itself is unsteady. But to the Jetson, BabyROS varies by
+only **±0.4881s** where UInt8MultiArray swings **±4.3378s** — nine times steadier, on top of
+being three times faster.
 
 ### Visualization Summary
 
@@ -480,16 +483,15 @@ Even with identical, high-performance hardware on both ends, the binary method i
 | BabyROS (Zenoh) | 10.2884s | 1.2756s |
 | String (Base64) | 10.5983s | 1.3949s |
 
-**This is the one configuration in the entire repository where BabyROS does not win.**
-UInt8MultiArray completes in 8.39s against BabyROS's 10.29s — 23% faster — and is also the
-steadiest of the three.
+**This is the only test in the whole study where BabyROS loses.** UInt8MultiArray finishes
+in **8.3911s** against BabyROS's **10.2884s** — 23% faster — and is the steadiest of the
+three as well (±0.6709s vs ±1.2756s).
 
-The explanation is the mirror image of the Ethernet result. On a fast link the dominant
-cost is the ~1.2s constant overhead of flattening four arrays into one contiguous `uint8`
-buffer, which BabyROS avoids entirely by carrying the arrays natively; that is why it wins
-Ethernet by 43–66%. Once the bottleneck becomes a ~140 Mbit/s radio, that packing cost is
-no longer significant relative to transfer time, and DDS's fragmentation strategy handles
-the lossy, high-RTT link more effectively than Zenoh's here.
+It is the mirror image of the Ethernet result. On a fast cable the biggest cost is the ~1.2s
+spent gluing the four blocks into one strip, which BabyROS skips — that is why it wins there
+by 43–66%. But WiFi carries only about a seventh of what the cable does, so the transfer
+itself takes 8–10s and 1.2s of gluing stops mattering. What matters instead is coping with
+dropped packets, and ROS 2 handles that better here.
 
 The measurement is stable rather than an artefact: latency was flat across the run
 (+0.035s from the first ten messages to the last ten), so no queue backlog was inflating

@@ -35,9 +35,12 @@ class NfsPublisher(Node):
     def send(self):
         self.msg_id += 1
 
-        arr = np.random.rand(self.dim, self.dim).astype(np.float32)
-
+        # Clock starts here, before the test data is created, so latency covers the whole
+        # path: making the payload, packing it, and moving it. Every method in this repo
+        # uses this same start point so the numbers are directly comparable.
         publish_time = time.time()
+
+        arr = np.random.rand(self.dim, self.dim).astype(np.float32)
 
         # Write array to NFS
         nfs_file = os.path.join(self.nfs_path, f"{self.msg_id}.npy")

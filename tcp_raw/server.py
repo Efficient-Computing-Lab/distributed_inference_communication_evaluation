@@ -25,9 +25,12 @@ def handle_client(conn, addr, csv_file):
     try:
         while True:
             msg_id += 1
-            arr = np.random.rand(DIM, DIM).astype(np.float32)
+            # Clock starts here, before the test data is created, so latency covers the whole
+            # path: making the payload, packing it, and moving it. Every method in this repo
+            # uses this same start point so the numbers are directly comparable.
             publish_time = time.time()
 
+            arr = np.random.rand(DIM, DIM).astype(np.float32)
             header = struct.pack(HEADER_FMT, msg_id, publish_time, arr.nbytes)
             conn.sendall(header)
             conn.sendall(memoryview(arr))   # zero-copy: sends directly from numpy buffer

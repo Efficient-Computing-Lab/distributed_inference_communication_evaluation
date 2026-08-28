@@ -39,13 +39,12 @@ class ListStreamServer(fl.FlightServerBase):
             while True:
                 self._msg_id += 1
 
-                arrays = [np.random.rand(*s).astype(np.float32) for s in SHAPES]
-
-                # Stamped after data generation and before Arrow serialization,
-                # matching the convention used by the other publishers here.
-                # Note this differs from arrow_flight/ (single array), which
-                # stamps at yield and so excludes batch construction.
+                # Clock starts here, before the test data is created, so latency covers the whole
+                # path: making the payload, packing it, and moving it. Every method in this repo
+                # uses this same start point so the numbers are directly comparable.
                 publish_time = time.time()
+
+                arrays = [np.random.rand(*s).astype(np.float32) for s in SHAPES]
 
                 batch = pa.record_batch(
                     [pa.array([a.tobytes()], type=pa.large_binary()) for a in arrays],

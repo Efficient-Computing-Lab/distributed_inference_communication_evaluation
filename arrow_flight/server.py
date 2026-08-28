@@ -6,8 +6,6 @@ import struct
 import csv
 import os
 import argparse
-import threading
-import queue
 
 
 DIM = 6125
@@ -18,8 +16,6 @@ SCHEMA = pa.schema([pa.field('data', pa.large_binary())])
 class DataStreamServer(fl.FlightServerBase):
     def __init__(self, location, folder_path, **kwargs):
         super().__init__(location, **kwargs)
-        self._clients = []
-        self._clients_lock = threading.Lock()
         self._msg_id = 0
 
         os.makedirs(folder_path, exist_ok=True)
@@ -28,83 +24,40 @@ class DataStreamServer(fl.FlightServerBase):
             with open(self._csv_file, "w", newline="") as f:
                 csv.writer(f).writerow(["msg_id", "publish_time", "dropped_msgs", "message_type"])
 
-        self._gen_thread = threading.Thread(target=self._generate_loop, daemon=True)
-        self._gen_thread.start()
-
-    def _generate_loop(self):
-        while True:
-            self._msg_id += 1
-            publish_time = time.time()
-
-            arr = np.random.rand(DIM, DIM).astype(np.float32)
-
-            batch = pa.record_batch(
-                [pa.array([arr.tobytes()], type=pa.large_binary())],
-                schema=SCHEMA,
-            )
-            # Per-batch metadata carries msg_id + publish_time (no extra column needed)
-            metadata = struct.pack('=Id', self._msg_id, publish_time)
-
-            dropped = 0
-            with self._clients_lock:
-                for q in self._clients:
-                    # Drain stale messages so latency reflects transfer time, not queue wait
-                    while not q.empty():
-                        try:
-                            q.get_nowait()
-                            dropped += 1
-                        except queue.Empty:
-                            break
-                    if dropped:
-                        print(f"  WARNING: dropped {dropped} stale message(s) — client too slow")
-                    q.put((batch, metadata))
-
-            with open(self._csv_file, "a", newline="") as f:
-                csv.writer(f).writerow([self._msg_id, publish_time, dropped, "ArrowFlight"])
-
-            print(f"Sent msg #{self._msg_id} to {len(self._clients)} client(s)")
-            time.sleep(INTERVAL_SEC)
-
     def do_get(self, context, ticket):
-        q = queue.Queue()
-        with self._clients_lock:
-            self._clients.append(q)
-
+        # Data is generated inside the client's own stream rather than in a
+        # broadcast thread feeding a queue. That is what allows publish_time to
+        # be stamped *before* Arrow serialization: with the old design the batch
+        # was already built by the time the stream could stamp a send time, so
+        # ~0.12s of batch construction fell outside the measurement while every
+        # other method here included its own serialization cost.
         def generate():
-            try:
-                while True:
-                    item = q.get()
-                    if item is None:
-                        return
-                    # Drain stale messages, keep only the latest
-                    while not q.empty():
-                        try:
-                            newer = q.get_nowait()
-                            if newer is None:
-                                return
-                            item = newer
-                        except queue.Empty:
-                            break
-                    batch, meta = item
-                    msg_id, _ = struct.unpack('=Id', meta)
-                    # Stamp actual send time so latency = pure transfer time
-                    send_time = time.time()
-                    yield batch, struct.pack('=Id', msg_id, send_time)
-            finally:
-                with self._clients_lock:
-                    try:
-                        self._clients.remove(q)
-                    except ValueError:
-                        pass
+            while True:
+                self._msg_id += 1
+
+                # Clock starts here, before the test data is created, so latency covers the whole
+                # path: making the payload, packing it, and moving it. Every method in this repo
+                # uses this same start point so the numbers are directly comparable.
+                publish_time = time.time()
+
+                arr = np.random.rand(DIM, DIM).astype(np.float32)
+
+                batch = pa.record_batch(
+                    [pa.array([arr.tobytes()], type=pa.large_binary())],
+                    schema=SCHEMA,
+                )
+                metadata = struct.pack('=Id', self._msg_id, publish_time)
+
+                # dropped_msgs is retained for schema compatibility with earlier
+                # runs; there is no queue in this design, so it is always 0.
+                with open(self._csv_file, "a", newline="") as f:
+                    csv.writer(f).writerow([self._msg_id, publish_time, 0, "ArrowFlight"])
+
+                print(f"Sent msg #{self._msg_id}")
+                yield batch, metadata
+                time.sleep(INTERVAL_SEC)
 
         return fl.GeneratorStream(SCHEMA, generate())
-
-    def shutdown(self):
-        # Unblock all waiting generators before shutting down
-        with self._clients_lock:
-            for q in self._clients:
-                q.put(None)
-        super().shutdown()
 
 
 def main():

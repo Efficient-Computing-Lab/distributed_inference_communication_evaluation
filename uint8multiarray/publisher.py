@@ -33,11 +33,12 @@ class BigPublisher(Node):
         self.msg_id += 1
 
         # 1. Create the 150MB float32 array
-        arr = np.random.rand(self.dim, self.dim).astype(np.float32)
-
-        # Stamped after data generation so latency measures the method
-        # (serialization + DDS transport), not the harness's numpy RNG.
+        # Clock starts here, before the test data is created, so latency covers the whole
+        # path: making the payload, packing it, and moving it. Every method in this repo
+        # uses this same start point so the numbers are directly comparable.
         publish_time = time.time()
+
+        arr = np.random.rand(self.dim, self.dim).astype(np.float32)
 
         # 2. Convert to raw bytes
         raw_bytes = arr.tobytes()

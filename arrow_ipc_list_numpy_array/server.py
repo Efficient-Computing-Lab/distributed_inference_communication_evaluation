@@ -39,11 +39,12 @@ def handle_client(conn, addr, csv_file):
         while True:
             msg_id += 1
 
-            arrays = [np.random.rand(*s).astype(np.float32) for s in SHAPES]
-
-            # Stamped after data generation so latency measures the method
-            # (Arrow serialization + TCP transport), not the harness's numpy RNG.
+            # Clock starts here, before the test data is created, so latency covers the whole
+            # path: making the payload, packing it, and moving it. Every method in this repo
+            # uses this same start point so the numbers are directly comparable.
             publish_time = time.time()
+
+            arrays = [np.random.rand(*s).astype(np.float32) for s in SHAPES]
 
             cols = {f'arr_{i}': pa.array([a.tobytes()], type=pa.large_binary())
                     for i, a in enumerate(arrays)}

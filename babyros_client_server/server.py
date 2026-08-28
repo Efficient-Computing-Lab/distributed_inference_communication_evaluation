@@ -72,11 +72,12 @@ def main():
             state["msg_id"] += 1
             msg_id = state["msg_id"]
 
-        arr = np.random.rand(DIM, DIM).astype(np.float32)
-
-        # Stamped after data generation so latency measures the method
-        # (serialization + Zenoh transport), not the harness's numpy RNG.
+        # Clock starts here, before the test data is created, so latency covers the whole
+        # path: making the payload, packing it, and moving it. Every method in this repo
+        # uses this same start point so the numbers are directly comparable.
         publish_time = time.time()
+
+        arr = np.random.rand(DIM, DIM).astype(np.float32)
 
         # Queued rather than written here: a CSV append on the reply path would
         # land between the stamp and the actual send, inflating the latency.

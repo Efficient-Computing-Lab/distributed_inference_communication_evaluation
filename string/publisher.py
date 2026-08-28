@@ -32,11 +32,12 @@ class BigPublisher(Node):
     def send(self):
         self.msg_id += 1
 
-        arr = np.random.rand(self.dim, self.dim).astype(np.float32)
-
-        # Stamped after data generation so latency measures the method
-        # (base64 + DDS transport), not the harness's numpy RNG.
+        # Clock starts here, before the test data is created, so latency covers the whole
+        # path: making the payload, packing it, and moving it. Every method in this repo
+        # uses this same start point so the numbers are directly comparable.
         publish_time = time.time()
+
+        arr = np.random.rand(self.dim, self.dim).astype(np.float32)
 
         header = struct.pack('=Id', self.msg_id, publish_time)
         binary_payload = header + arr.tobytes()

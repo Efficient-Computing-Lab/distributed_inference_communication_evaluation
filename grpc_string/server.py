@@ -32,11 +32,12 @@ class DataStreamServicer(string_comm_pb2_grpc.DataStreamServicer):
         while context.is_active():
             self.msg_id += 1
 
-            arr = np.random.rand(DIM, DIM).astype(np.float32)
-
-            # Stamped after data generation so latency measures the method
-            # (protobuf framing + gRPC transport), not the harness's numpy RNG.
+            # Clock starts here, before the test data is created, so latency covers the whole
+            # path: making the payload, packing it, and moving it. Every method in this repo
+            # uses this same start point so the numbers are directly comparable.
             publish_time = time.time()
+
+            arr = np.random.rand(DIM, DIM).astype(np.float32)
 
             payload = arr.tobytes()
 

@@ -35,11 +35,12 @@ class ListPublisherString(Node):
     def send(self):
         self.msg_id += 1
 
-        arrays = [np.random.rand(*s).astype(np.float32) for s in self.shapes]
-
-        # Stamped after data generation so latency measures the method
-        # (packing + base64 + DDS transport), not the harness's numpy RNG.
+        # Clock starts here, before the test data is created, so latency covers the whole
+        # path: making the payload, packing it, and moving it. Every method in this repo
+        # uses this same start point so the numbers are directly comparable.
         publish_time = time.time()
+
+        arrays = [np.random.rand(*s).astype(np.float32) for s in self.shapes]
 
         # 1. Convert all arrays to raw bytes
         byte_arrays = [a.tobytes() for a in arrays]
