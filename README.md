@@ -324,8 +324,8 @@ UInt8MultiArray shows 4.34 s — roughly 9× tighter on a mean that is already 3
   payload needs over WiFi, so the session died mid-run. `rmw_zenoh` raises the same value for
   the same reason.
 
-> `tcp_raw/`, `nfs/` and `babyros_client_server/` also ship in this repo but have no recorded
-> results and appear in no ranking — see [Running the Benchmarks](#running-the-benchmarks).
+> `tcp_raw/` and `babyros_client_server/` also ship in this repo but have no recorded results
+> and appear in no ranking — see [Running the Benchmarks](#running-the-benchmarks).
 
 ---
 
