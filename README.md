@@ -5,7 +5,7 @@ way of sending it is fastest?
 
 We send the same data — about **150 MB of numbers** — over and over between two computers,
 and time how long each message takes to arrive. We try six different ways of sending it,
-over both a network cable and WiFi, and to two kinds of receiver: a normal PC and a small
+over a Gigabit Ethernet cable, and to two kinds of receiver: a normal PC and a small
 Jetson Nano board.
 
 Every method sends exactly the same numbers, so any difference in time comes from the
@@ -18,8 +18,6 @@ sending method, not the data.
 - [Hardware Setup](#hardware-setup)
 - [Network Baseline (iperf3)](#network-baseline-iperf3)
   - [Ethernet](#ethernet)
-  - [WiFi](#wifi)
-  - [Ethernet vs WiFi comparison](#ethernet-vs-wifi-comparison)
 - [Methods Compared](#methods-compared)
   - [ROS 2 (DDS / FastDDS middleware)](#ros-2-dds--fastdds-middleware)
     - [UInt8MultiArray — raw bytes down a byte-array message](#uint8multiarray--raw-bytes-down-a-byte-array-message)
@@ -34,24 +32,6 @@ sending method, not the data.
   - [Environment](#environment)
   - [ROS 2 methods](#ros-2-methods)
   - [Non-ROS methods](#non-ros-methods)
-  - [NFS (out-of-band transfer)](#nfs-out-of-band-transfer)
-  - [Network baseline (iperf3)](#network-baseline-iperf3-1)
-  - [Generating plots](#generating-plots)
-  - [Verifying a run](#verifying-a-run)
-- [Experiment Matrix](#experiment-matrix)
-- [Results Summary](#results-summary)
-  - [One big block — 150 MB, over the cable](#one-big-block--150-mb-over-the-cable)
-  - [Four smaller blocks — 98.84 MB, over the cable](#four-smaller-blocks--9884-mb-over-the-cable)
-- [What changes between one block and four?](#what-changes-between-one-block-and-four)
-  - [WiFi](#wifi-1)
-  - [How close to the wire?](#how-close-to-the-wire)
-- [Detailed Results](#detailed-results)
-- [Overall Recommendations](#overall-recommendations)
-  - [Is there a single best option?](#is-there-a-single-best-option)
-  - [Start here: what constrains you?](#start-here-what-constrains-you)
-  - [Best option per configuration](#best-option-per-configuration)
-  - [The three rules that explain every result](#the-three-rules-that-explain-every-result)
-- [Repository Structure](#repository-structure)
 
 ---
 
@@ -63,15 +43,13 @@ sending method, not the data.
 | X86 Machine B | Subscriber / Client | x86-64 |
 | Jetson Nano | Subscriber / Client | ARM Cortex-A57 |
 
-Network configuration for WiFi experiments: the X86 publisher is connected via **WiFi**; X86 Machine B and the Jetson Nano are connected via **Ethernet**.
-
-Network configuration for Ethernet-only experiments: all machines communicate via **Ethernet**.
+Network configuration: all machines communicate via **Ethernet**, connected to a Gigabit switch.
 
 ---
 
 ## Network Baseline (iperf3)
 
-Raw network throughput was characterized using **iperf3** before any ROS 2 middleware overhead — establishing the available bandwidth ceiling for the two link types used in all experiments.
+Raw network throughput was characterized using **iperf3** before any ROS 2 middleware overhead — establishing the available bandwidth ceiling for the link used in all experiments.
 
 Each dataset consists of repeated 30-second iperf3 runs between the same client/server pair used in the ROS 2 benchmarks:
 
@@ -79,8 +57,6 @@ Each dataset consists of repeated 30-second iperf3 runs between the same client/
 | :--- | :--- | :--- | :--- |
 | Ethernet UDP | `iperf_outputs.zip` | UDP | 100 |
 | Ethernet TCP | `iperf_tcp_outputs.zip` | TCP | 100 |
-| WiFi UDP | `wifi_iperf_outputs.zip` | UDP | 98 |
-| WiFi TCP | `wifi_iperf_outputs.zip` | TCP | 96 |
 
 ### Ethernet
 
@@ -92,30 +68,6 @@ Each dataset consists of repeated 30-second iperf3 runs between the same client/
 | **TCP** | 942.01 ± 0.20 Mbit/s | 941.35 ± 0.12 Mbit/s | 1.96 ms | — | — | 0 (zero) |
 
 The Ethernet link saturates at ~956 Mbit/s (UDP) / ~942 Mbit/s (TCP) with essentially no jitter, zero packet loss, and zero TCP retransmits across all 100 runs — a near-ideal Gigabit channel.
-
-### WiFi
-
-> Publisher machine on WiFi (`147.102.19.185`), server on Ethernet (`147.102.19.67`). This matches the WiFi experiment topology used in the ROS 2 benchmarks.
-
-| Protocol | Throughput sent (mean ± stdev) | Throughput recv (mean ± stdev) | RTT (mean) | Jitter (mean) | Packet loss (mean / max) | TCP retransmits (mean / max) |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **UDP** | 138.75 ± 11.98 Mbit/s | 138.62 ± 11.90 Mbit/s | — | 0.11 ms | 0.065% / 0.48% | — |
-| **TCP** | 142.51 ± 13.62 Mbit/s | 141.68 ± 13.64 Mbit/s | 29.43 ms | — | — | 4.9 avg / 85 max |
-
-The WiFi link delivers ~140 Mbit/s on average but with high variability (stdev ~12–14 Mbit/s, min ~109 Mbit/s, max ~197 Mbit/s), a 15× higher RTT (29 ms vs 2 ms on Ethernet), and intermittent TCP retransmits (avg 4.9, max 85 per 30-second run).
-
-### Ethernet vs WiFi comparison
-
-| Metric | Ethernet | WiFi | Ratio |
-| :--- | :--- | :--- | :--- |
-| TCP throughput (mean) | 942 Mbit/s | 143 Mbit/s | **~6.6×** |
-| UDP throughput (mean) | 956 Mbit/s | 139 Mbit/s | **~6.9×** |
-| Throughput variability (stdev) | 0.2 Mbit/s | 12–14 Mbit/s | **~60–70×** |
-| RTT (mean) | 1.96 ms | 29.4 ms | **~15×** |
-| Jitter | 0.016 ms | 0.11 ms | **~7×** |
-| Packet loss | 0.0004% | 0.065% | **~163×** |
-
-The ~6.7× raw bandwidth gap between Ethernet and WiFi directly explains the ~4–6× increase in ROS 2 transfer latency observed in the benchmark results. The additional gap between raw bandwidth ratios and ROS 2 latency ratios is attributable to DDS fragmentation and discovery overhead — which scales poorly on lossy, high-RTT links.
 
 ---
 
@@ -156,8 +108,8 @@ Four properties of that stack explain the results:
 - **Fragmentation.** A UDP datagram cannot carry 150 MB, so RTPS splits every large sample
   into thousands of `DATA_FRAG` submessages sized to the link's MTU, and the reader
   reassembles them. Every fragment is bookkeeping: sequence numbers, heartbeats, ACKNACKs.
-  This is why ROS 2's disadvantage grows on lossy, high-RTT links like WiFi, where a single
-  lost fragment stalls the whole sample.
+  This is why ROS 2's disadvantage grows on lossy or high-RTT links, where a single lost
+  fragment stalls the whole sample.
 - **CDR serialization.** Messages are described in IDL and serialized to Common Data
   Representation. For a `uint8[]` field that is close to a straight memory copy, but it is
   still a copy — into the DDS writer's buffer on the way out, and out of the reader's cache on
@@ -342,8 +294,8 @@ uncompressed on the wire — the same deal Arrow gets, reached from the other di
 buys back the one thing every other non-ROS method here gives up: **broadcast pub/sub**, a
 sender publishing to any number of automatically-discovered receivers. Like the other non-ROS
 methods it is nearly immune to the receiver's CPU (**+1% on the Jetson**, against ROS 2's
-+70%), and it is by far the **steadiest**: 0.49 s standard deviation on WiFi→Jetson where
-UInt8MultiArray shows 4.34 s — roughly 9× tighter on a mean that is already 3× lower.
++70%), and it is by far the **steadiest**: 0.013 s standard deviation on Ethernet→Jetson
+where UInt8MultiArray shows 0.136 s — roughly 10× tighter on a mean that is already 2× lower.
 
 **Two settings stock BabyROS does not apply** were required to get there, both documented in
 [babyros/README.md](babyros/README.md):
@@ -355,12 +307,12 @@ UInt8MultiArray shows 4.34 s — roughly 9× tighter on a mean that is already 3
   `BLOCK`, which waits for queue space instead. It is 100% now; `--allow-drop` reproduces the
   original behaviour.
 - **`wait_before_close = 60 s`.** How long a blocking publisher may wait for queue space
-  before Zenoh tears down the transport session. The stock default is below the ~9 s a 150 MB
-  payload needs over WiFi, so the session died mid-run. `rmw_zenoh` raises the same value for
-  the same reason.
+  before Zenoh tears down the transport session. The stock default is below the time a 150 MB
+  payload needs on a saturated link, so the session was torn down mid-run. `rmw_zenoh` raises
+  the same value for the same reason.
 
-> `tcp_raw/`, `nfs/` and `babyros_client_server/` also ship in this repo but have no recorded
-> results and appear in no ranking — see [Running the Benchmarks](#running-the-benchmarks).
+> `tcp_raw/` and `babyros_client_server/` also ship in this repo but have no recorded results
+> and appear in no ranking — see [Running the Benchmarks](#running-the-benchmarks).
 
 ---
 
@@ -370,22 +322,21 @@ Every method follows the same shape: **start the receiver first, then the sender
 side writes its own CSV into `--folder`, and latency is computed on the receiver.
 
 All commands below are run **from inside the method's directory**, so `--folder` reproduces
-the results tree (e.g. running `string/publisher.py` with `--folder wifi/x86_machines`
-creates `string/wifi/x86_machines/`).
+the results tree (e.g. running `string/publisher.py` with `--folder ethernet/x86_machines`
+creates `string/ethernet/x86_machines/`).
 
 Let each run collect ~100 messages (5 s apart → ~9 minutes), then stop both sides with
 `Ctrl-C`.
 
 ### Folder naming
 
-`--folder` encodes network and machine pair. The naming is **not** uniform across the repo —
-match these exactly to extend existing results:
+`--folder` encodes network and machine pair. Match these exactly to extend existing results —
+every method uses the same two names:
 
-| Machine pair | Single-array methods | List-of-arrays & non-ROS methods |
-| :--- | :--- | :--- |
-| Publisher + subscriber on one X86 | `wifi/same_machine` | `wifi/same_machine` |
-| X86 → X86 | `wifi/x86_machines`, `ethernet/x86_machines` | same |
-| X86 → Jetson Nano | `wifi/diff_machine` ⚠️ *singular* | `wifi/diff_machines`, `ethernet/diff_machines` |
+| Machine pair | Folder |
+| :--- | :--- |
+| X86 → X86 | `ethernet/x86_machines` |
+| X86 → Jetson Nano | `ethernet/diff_machines` |
 
 ### Environment
 
@@ -394,7 +345,7 @@ match these exactly to extend existing results:
 | ROS2 (`string`, `uint8multiarray`, `*_list_numpy_array`) | ROS 2 Jazzy + `numpy` — `source /opt/ros/jazzy/setup.bash` |
 | `arrow_flight`, `arrow_ipc` | `conda env create -f arrow_flight/environment.yml` (numpy + pyarrow) |
 | `grpc_string` | `conda env create -f grpc_string/environment.yml` (`string_comm_pb2*.py` are pre-generated) |
-| `tcp_raw`, `nfs` | numpy only |
+| `tcp_raw` | numpy only |
 | `babyros` | Python 3.11–3.12 venv — see [babyros/README.md](babyros/README.md) |
 | `analysis/` | `pip install -r analysis/requirements.txt` |
 
@@ -449,15 +400,7 @@ python3 publisher.py  --folder ethernet/x86_machines
 `arrow_ipc`, `arrow_flight`, `grpc_string` and `tcp_raw` all accept `--port` if the default
 is taken. `tcp_raw/` follows the same server/client pattern on port 9000.
 
-### NFS (out-of-band transfer)
 
-Sends only a notification over ROS 2; the array travels over the NFS mount. Both paths must
-point at the same share:
-
-```bash
-cd nfs
-python3 subscriber.py --folder ethernet/x86_machines --nfs-path /var/locally-mounted
-python3 publisher.py  --folder ethernet/x86_machines --nfs-path /mnt/myshareddir
 ```
 
 ### Network baseline (iperf3)
@@ -478,11 +421,10 @@ Run from inside `analysis/` — output paths are relative to the working directo
 
 ```bash
 cd analysis
-python3 plot_analysis.py            # WiFi  → wifi/plots/, wifi/plots_2nd/
-python3 plot_analysis_ethernet.py   # Ethernet → ethernet/plots{,_2nd,_non_ros}/
+python3 plot_analysis_ethernet.py   # → ethernet/plots{,_2nd,_non_ros}/
 ```
 
-Both scripts read the subscriber CSVs directly and will fail if a configuration has not been
+The script reads the subscriber CSVs directly and will fail if a configuration has not been
 collected yet.
 
 ### Verifying a run
@@ -500,9 +442,6 @@ wc -l <method>/<network>/<pair>/publisher_log.csv <method>/<network>/<pair>/subs
 
 | Configuration | Network | Detailed Results |
 | :--- | :--- | :--- |
-| Same machine (X86) | — | [README_wifi.md](README_wifi.md) |
-| X86 publisher → X86 subscriber | WiFi | [README_wifi.md](README_wifi.md) |
-| X86 publisher → Jetson Nano subscriber | WiFi | [README_wifi.md](README_wifi.md) |
 | X86 publisher → X86 subscriber | Ethernet | [README_ethernet.md](README_ethernet.md) |
 | X86 publisher → Jetson Nano subscriber | Ethernet | [README_ethernet.md](README_ethernet.md) |
 
@@ -582,15 +521,6 @@ while the ROS 2 pair needs 2.0–4.1s.
 The winner is unaffected: Arrow IPC leads both tests, at 93.5 MB/s on one block and
 91.0 MB/s on four. Sending the same data in four pieces rather than one costs it under 3%.
 
-### WiFi
-
-WiFi results are **not reported here**. Only three of the six methods have been measured
-over WiFi — the Arrow and gRPC methods have never been run on it — so no comparable table
-can be built. The ROS 2 and BabyROS WiFi runs are written up separately in
-**[README_wifi.md](README_wifi.md)**.
-
----
-
 ### How close to the wire?
 
 The cable itself carries at most **118 MB/s** (TCP) or **120 MB/s** (UDP, which is what
@@ -624,11 +554,7 @@ having it received, so they are directly comparable with the tables above.
 
 ## Detailed Results
 
-Full per-experiment analysis, plots, and conclusions are in the two benchmark READMEs:
-
-- **[README_wifi.md](README_wifi.md)** — WiFi experiments: same machine, X86→X86, X86→Jetson Nano
-  - Single array: UInt8MultiArray vs String (Base64)
-  - List of arrays: UInt8MultiArray vs String (Base64)
+Full per-experiment analysis, plots, and conclusions are in the benchmark README:
 
 - **[README_ethernet.md](README_ethernet.md)** — Ethernet experiments: X86→X86, X86→Jetson Nano
   - Single array: UInt8MultiArray vs String (Base64)
@@ -728,12 +654,10 @@ study and it decides all the advice above about small devices.
 ```
 .
 ├── README.md                          ← this file
-├── README_wifi.md                     ← WiFi experiment details & plots
 ├── README_ethernet.md                 ← Ethernet experiment details & plots
 │
 ├── iperf_outputs.zip                  ← iperf3 baseline: Ethernet UDP (100 runs)
 ├── iperf_tcp_outputs.zip              ← iperf3 baseline: Ethernet TCP (100 runs)
-├── wifi_iperf_outputs.zip             ← iperf3 baseline: WiFi UDP + WiFi TCP (~98/96 runs)
 │
 ├── string/                            ← ROS2 String (Base64), single array
 ├── uint8multiarray/                   ← ROS2 UInt8MultiArray, single array
@@ -750,16 +674,13 @@ study and it decides all the advice above about small devices.
 ├── grpc_string_list_numpy_array/      ← Non-ROS: gRPC repeated bytes, list of arrays
 │
 └── analysis/
-    ├── plot_analysis.py               ← generates WiFi plots
     ├── plot_analysis_ethernet.py      ← generates Ethernet plots
-    ├── wifi/plots/                    ← single array WiFi plots
-    ├── wifi/plots_2nd/                ← list of arrays WiFi plots
     ├── ethernet/plots/                ← single array Ethernet plots
     ├── ethernet/plots_2nd/            ← list of arrays Ethernet plots
     ├── ethernet/plots_non_ros/        ← non-ROS Ethernet plots
     ├── ethernet/plots_all/            ← all six methods, one big block
     ├── ethernet/plots_all_2nd/        ← all six methods, four blocks
-    ├── {wifi,ethernet}/plots_babyros/     ← BabyROS vs ROS2, single array
+    ├── ethernet/plots_babyros/        ← BabyROS vs ROS2, single array
     ├── ethernet/plots_list_non_ros/   ← Arrow IPC vs Flight vs BabyROS, list
-    └── {wifi,ethernet}/plots_babyros_2nd/ ← BabyROS vs ROS2, list of arrays
+    └── ethernet/plots_babyros_2nd/    ← BabyROS vs ROS2, list of arrays
 ```
