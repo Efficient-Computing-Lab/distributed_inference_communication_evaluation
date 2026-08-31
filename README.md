@@ -463,43 +463,7 @@ receiver from a PC to a Jetson Nano costs ROS 2 **70%** on one block (2.1086s �
 costs Arrow IPC 4%, Arrow Flight 0%, and BabyROS 1%. This is the biggest single effect in the
 study and it decides all the advice above about small devices.
 
-### Caveats worth carrying
 
-* Results were recorded under two different clock start points. The *comparable* columns correct for it; [Measurement validity](#measurement-validity) explains which conclusions are affected (few) and which are not (most).
-* Only Ethernet is reported here. Three of the six methods have never been run over WiFi, so no comparable WiFi table exists; the ROS 2 and BabyROS WiFi runs are in [README_wifi.md](README_wifi.md).
-* BabyROS needs Python 3.11–3.12 and glibc ≥ 2.28, which **rules out the Jetson Nano used here** without a container — see [babyros/README.md](babyros/README.md).
-
----
-
-## Measurement validity
-
-**Every Ethernet result was measured the same way**, so the tables can be compared directly.
-The clock starts on the sender before the test data is created and stops when the receiver
-has the message, which means each figure covers the whole path: making the payload, packing
-it, and moving it.
-
-That was not always true. Earlier runs used three different start points, which made Arrow
-Flight look faster than it was. All 24 Ethernet cells have since been re-collected or
-verified on the single shared basis, and every sender script now uses it.
-
-**Two faults found and fixed while collecting:**
-
-* **Files being appended, not replaced.** The scripts add to an existing CSV rather than
-  overwriting it, so restarting a run silently joined two sessions into one file. Three files
-  were affected and have been split by timestamp. Always delete the CSV before re-running:
-  `rm -f <folder>/*.csv`
-* **Truncated headers after copying between machines.** Two files arrived with `sg_id`
-  instead of `msg_id` — a single missing leading byte. The plotting script skips such a file
-  silently, so it looks like a missing experiment rather than a broken one. Worth checking
-  after any transfer: `head -1 <file>` should start with `msg_id`.
-
-**Still to collect:** no Arrow or gRPC method has been run over WiFi, so the WiFi tables
-compare three methods rather than six.
-
-One caveat no re-run fixes: latency is the receiver's clock minus the sender's clock, so if
-the two machines' clocks drift apart every figure carries a fixed offset. It cancels out when
-comparing methods on the same pair, so the rankings hold — but check `timedatectl` on both
-machines before quoting absolute seconds.
 
 ---
 
