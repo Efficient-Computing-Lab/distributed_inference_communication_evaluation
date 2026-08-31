@@ -683,6 +683,10 @@ receiver from a PC to a Jetson Nano costs ROS 2 **70%** on one block (2.1086s â†
 costs Arrow IPC 4%, Arrow Flight 0%, and BabyROS 1%. This is the biggest single effect in the
 study and it decides all the advice above about small devices.
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> refs/remotes/origin/main
 
 ---
 
