@@ -150,13 +150,6 @@ Two things cost it dearly:
   method takes **1.13 s longer to send 34% less data** (3.23 s on four blocks) and falls to
   26% of wire speed — last of six.
 
-  ⚠️ **Caveat on that number.** The two publishers fill the field differently:
-  `uint8multiarray/publisher.py` assigns `bytes` directly (`msg.data = header + raw_bytes`),
-  while `uint8multiarray_list_numpy_array/publisher.py` does `msg.data = list(binary_payload)`
-  — materializing ~99 million Python ints. That conversion is a property of the script, not of
-  `UInt8MultiArray`, and almost certainly accounts for much of the 1.13 s. Re-run the list
-  variant with a `bytes` assignment before quoting the 26% figure as the message type's own
-  cost.
 
 #### String (Base64) — bytes as text
 
@@ -324,8 +317,8 @@ UInt8MultiArray shows 4.34 s — roughly 9× tighter on a mean that is already 3
   payload needs over WiFi, so the session died mid-run. `rmw_zenoh` raises the same value for
   the same reason.
 
-> `tcp_raw/` and `babyros_client_server/` also ship in this repo but have no recorded results
-> and appear in no ranking — see [Running the Benchmarks](#running-the-benchmarks).
+> `tcp_raw/`, `nfs/` and `babyros_client_server/` also ship in this repo but have no recorded
+> results and appear in no ranking — see [Running the Benchmarks](#running-the-benchmarks).
 
 ---
 
