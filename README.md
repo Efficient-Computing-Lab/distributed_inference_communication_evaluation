@@ -13,6 +13,48 @@ sending method, not the data.
 
 ---
 
+## Contents
+
+- [Hardware Setup](#hardware-setup)
+- [Network Baseline (iperf3)](#network-baseline-iperf3)
+  - [Ethernet](#ethernet)
+  - [WiFi](#wifi)
+  - [Ethernet vs WiFi comparison](#ethernet-vs-wifi-comparison)
+- [Methods Compared](#methods-compared)
+  - [ROS 2 (DDS / FastDDS middleware)](#ros-2-dds--fastdds-middleware)
+    - [UInt8MultiArray — raw bytes down a byte-array message](#uint8multiarray--raw-bytes-down-a-byte-array-message)
+    - [String (Base64) — bytes as text](#string-base64--bytes-as-text)
+  - [Non-ROS (Ethernet only)](#non-ros-ethernet-only)
+    - [Arrow IPC + TCP — the benchmark winner](#arrow-ipc--tcp--the-benchmark-winner)
+    - [Arrow Flight — the same payload with a managed connection](#arrow-flight--the-same-payload-with-a-managed-connection)
+    - [gRPC String (bytes) — protobuf, no Arrow](#grpc-string-bytes--protobuf-no-arrow)
+    - [BabyROS (Zenoh) — ROS-style pub/sub without DDS](#babyros-zenoh--ros-style-pubsub-without-dds)
+- [Running the Benchmarks](#running-the-benchmarks)
+  - [Folder naming](#folder-naming)
+  - [Environment](#environment)
+  - [ROS 2 methods](#ros-2-methods)
+  - [Non-ROS methods](#non-ros-methods)
+  - [NFS (out-of-band transfer)](#nfs-out-of-band-transfer)
+  - [Network baseline (iperf3)](#network-baseline-iperf3-1)
+  - [Generating plots](#generating-plots)
+  - [Verifying a run](#verifying-a-run)
+- [Experiment Matrix](#experiment-matrix)
+- [Results Summary](#results-summary)
+  - [One big block — 150 MB, over the cable](#one-big-block--150-mb-over-the-cable)
+  - [Four smaller blocks — 98.84 MB, over the cable](#four-smaller-blocks--9884-mb-over-the-cable)
+- [What changes between one block and four?](#what-changes-between-one-block-and-four)
+  - [WiFi](#wifi-1)
+  - [How close to the wire?](#how-close-to-the-wire)
+- [Detailed Results](#detailed-results)
+- [Overall Recommendations](#overall-recommendations)
+  - [Is there a single best option?](#is-there-a-single-best-option)
+  - [Start here: what constrains you?](#start-here-what-constrains-you)
+  - [Best option per configuration](#best-option-per-configuration)
+  - [The three rules that explain every result](#the-three-rules-that-explain-every-result)
+- [Repository Structure](#repository-structure)
+
+---
+
 ## Hardware Setup
 
 | Machine | Role | CPU |
