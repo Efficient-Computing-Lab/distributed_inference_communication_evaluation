@@ -4,13 +4,17 @@ How fast can a machine transmit a large numerical array to another machine? This
 includes six transmission methods, two ROS 2 message types and four non-ROS transports. The network has sending
 Gigabit speed and we use two PCs and a Jetson Nano.
 
-Tested methods:
-- ROS 2 UInt8MultiArray
-- ROS 2 String / Base64
-- Arrow IPC + TCP
-- Arrow Flight
-- gRPC
-- BabyROS / Zenoh
+Tested methods — each folder's README describes the technology, what it sends, and how to
+run it:
+
+| Method | One 150 MB array | Four arrays, ~99 MB |
+| :--- | :--- | :--- |
+| ROS 2 UInt8MultiArray | [`uint8multiarray/`](uint8multiarray/README.md) | [`uint8multiarray_list_numpy_array/`](uint8multiarray_list_numpy_array/README.md) |
+| ROS 2 String / Base64 | [`string/`](string/README.md) | [`string_list_numpy_array/`](string_list_numpy_array/README.md) |
+| Arrow IPC + TCP | [`arrow_ipc/`](arrow_ipc/README.md) | [`arrow_ipc_list_numpy_array/`](arrow_ipc_list_numpy_array/README.md) |
+| Arrow Flight | [`arrow_flight/`](arrow_flight/README.md) | [`arrow_flight_list_numpy_array/`](arrow_flight_list_numpy_array/README.md) |
+| gRPC | [`grpc_string/`](grpc_string/README.md) | [`grpc_string_list_numpy_array/`](grpc_string_list_numpy_array/README.md) |
+| BabyROS / Zenoh | [`babyros/`](babyros/README.md) | [`babyros_list_numpy_array/`](babyros_list_numpy_array/README.md) |
 
 ## Experimental Setup
 
@@ -26,15 +30,17 @@ Tested methods:
 
 ## Results
 
+Method names link to that method's folder README; the four-array runs live in the
+corresponding `*_list_numpy_array/` folder.
 
 | Method | 150 MB<br>x86 → x86 | 150 MB<br>x86 → Jetson | 4 arrays<br>x86 → x86 | 4 arrays<br>x86 → Jetson |
 | :--- | ---: | ---: | ---: | ---: |
-| **Arrow IPC + TCP** | **1.606** | **1.665** | **1.087** | **1.106** |
-| Arrow Flight (gRPC) | 1.716 | 1.724 | 1.154 | 1.167 |
-| BabyROS (Zenoh) | 1.786 | 1.799 | 1.269 | 1.265 |
-| ROS 2 UInt8MultiArray | 2.109 | 3.589 | 3.234 | 4.149 |
-| gRPC (bytes / repeated bytes) | 2.167 | 2.233 | 1.426 | 1.479 |
-| ROS 2 String (Base64) | 2.978 | 5.082 | 2.015 | 3.307 |
+| [**Arrow IPC + TCP**](arrow_ipc/README.md) | **1.606** | **1.665** | **1.087** | **1.106** |
+| [Arrow Flight (gRPC)](arrow_flight/README.md) | 1.716 | 1.724 | 1.154 | 1.167 |
+| [BabyROS (Zenoh)](babyros/README.md) | 1.786 | 1.799 | 1.269 | 1.265 |
+| [ROS 2 UInt8MultiArray](uint8multiarray/README.md) | 2.109 | 3.589 | 3.234 | 4.149 |
+| [gRPC (bytes / repeated bytes)](grpc_string/README.md) | 2.167 | 2.233 | 1.426 | 1.479 |
+| [ROS 2 String (Base64)](string/README.md) | 2.978 | 5.082 | 2.015 | 3.307 |
 
 ## Key Findings
 
@@ -48,10 +54,10 @@ Tested methods:
 
 | If you need… | Use |
 | :--- | :--- |
-| Minimum latency, point-to-point | **Arrow IPC + TCP** |
-| A managed connection, several clients | **Arrow Flight** (~6% slower) |
-| Pub/sub without DDS | **BabyROS (Zenoh)** (~11% slower) |
-| To stay inside ROS 2 | **UInt8MultiArray** for one array, **String (Base64)** for several |
+| Minimum latency, point-to-point | [**Arrow IPC + TCP**](arrow_ipc/README.md) |
+| A managed connection, several clients | [**Arrow Flight**](arrow_flight/README.md) (~6% slower) |
+| Pub/sub without DDS | [**BabyROS (Zenoh)**](babyros/README.md) (~11% slower) |
+| To stay inside ROS 2 | [**UInt8MultiArray**](uint8multiarray/README.md) for one array, [**String (Base64)**](string/README.md) for several |
 
 ## Running the Benchmark
 
@@ -59,6 +65,9 @@ Every experiment follows the same shape: **start the receiver first, then the se
 both from inside the method's directory, and let each run collect ~100 messages (5 s apart,
 so ~9 minutes) before stopping both sides with `Ctrl-C`. Each side writes its own CSV into
 `--folder`; latency is computed on the receiver.
+
+Per-method detail — options, tuning profiles, ports and caveats — is in each folder's own
+README, linked from the method table at the top of this file.
 
 ### Environment
 
@@ -86,7 +95,11 @@ six methods × two payload shapes — per machine pair.
 
 ### ROS 2 methods
 
-Subscriber first, on the receiving machine. Both sides need the same `ROS_DOMAIN_ID`:
+Subscriber first, on the receiving machine. Both sides need the same `ROS_DOMAIN_ID`.
+Folder READMEs: [`uint8multiarray/`](uint8multiarray/README.md),
+[`uint8multiarray_list_numpy_array/`](uint8multiarray_list_numpy_array/README.md),
+[`string/`](string/README.md),
+[`string_list_numpy_array/`](string_list_numpy_array/README.md).
 
 ```bash
 export ROS_DOMAIN_ID=0            # on both machines
@@ -113,7 +126,13 @@ export FASTRTPS_DEFAULT_PROFILES_FILE=$PWD/custom_fast_dds.xml
 ### Arrow IPC + TCP, Arrow Flight, gRPC
 
 Server first, on the sending machine; `--host` on the client is the server's address.
-All three accept `--port` if the default is taken.
+All three accept `--port` if the default is taken. Folder READMEs:
+[`arrow_ipc/`](arrow_ipc/README.md),
+[`arrow_ipc_list_numpy_array/`](arrow_ipc_list_numpy_array/README.md),
+[`arrow_flight/`](arrow_flight/README.md),
+[`arrow_flight_list_numpy_array/`](arrow_flight_list_numpy_array/README.md),
+[`grpc_string/`](grpc_string/README.md),
+[`grpc_string_list_numpy_array/`](grpc_string_list_numpy_array/README.md).
 
 ```bash
 # Arrow IPC + TCP — port 9000
@@ -133,6 +152,10 @@ python3 client.py --folder ethernet/x86_machines --host <server-ip>
 ```
 
 ### BabyROS (Zenoh)
+
+Folder READMEs: [`babyros/`](babyros/README.md) — which also covers installation and the
+ARM/Jetson constraints — and
+[`babyros_list_numpy_array/`](babyros_list_numpy_array/README.md).
 
 Subscriber first. Peers on the same subnet find each other by multicast scouting; where
 multicast is blocked, pass `--listen tcp/0.0.0.0:7447` on the publisher and
@@ -178,7 +201,8 @@ wc -l <method>/ethernet/<pair>/publisher_log.csv <method>/ethernet/<pair>/subscr
 
 For detailed results, plots and implementation discussion:
 - [README_ethernet.md](README_ethernet.md) — per-experiment results and plots
-- [docs/methods.md](docs/methods.md) — how each method works and why it costs what it does
+- [docs/methods.md](docs/methods.md) — network baseline, comparison methodology, and the
+  index of per-method descriptions
 - [analysis/](analysis/) — plotting scripts and generated figures
 
 ## Repository Structure
@@ -197,6 +221,11 @@ For detailed results, plots and implementation discussion:
 ├── grpc_string/                 ← gRPC bytes
 ├── babyros/                     ← BabyROS (Zenoh)
 ├── *_list_numpy_array/          ← same methods, four-array payload
+│                                  (every method folder has its own README.md)
 │
 └── analysis/                    ← plotting scripts and figures
 ```
+
+Every method folder carries its own `README.md` with the technology description, the run
+commands for both machine pairs, and that configuration's results — linked from the method
+table at the top of this file.

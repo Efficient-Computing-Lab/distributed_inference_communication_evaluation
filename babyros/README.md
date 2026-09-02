@@ -6,12 +6,38 @@ between the two groups already benchmarked here: it keeps the ROS-style
 publisher/subscriber API, but replaces DDS with Zenoh and carries numpy arrays as raw
 bytes with an Arrow-style manifest — no message schemas, no IDL, no base64.
 
+Part of the [Large-Data Communication Benchmark](../README.md) — see the main README for
+the full comparison, and [`docs/methods.md`](../docs/methods.md) for the method index.
+
 Covers both payload shapes used elsewhere in this repo:
 
 | Directory | Payload |
 | :--- | :--- |
 | `babyros/` | Single 6125×6125 `float32` array (~150 MB) |
 | `babyros_list_numpy_array/` | Four `float32` arrays (~99 MB), matching the ROS2 list experiment |
+
+---
+
+## The technology
+
+[Zenoh](https://zenoh.io/) is an Eclipse Foundation protocol from
+ZettaScale that unifies pub/sub, query and storage under one abstraction. Where DDS matches
+*topics* between typed endpoints, Zenoh routes on **key expressions** (`big_topic`, with
+wildcards) and treats payloads as opaque bytes — no IDL, no type registry, no CDR. Nodes can
+run as peers (direct, mesh) or through routers; peers on a subnet find each other by
+**multicast scouting**, and explicit `listen`/`connect` endpoints work when multicast does
+not. The transport layer runs over TCP, UDP, QUIC, Unix sockets or shared memory, batches
+small messages, and — critically for this benchmark — exposes **per-publisher congestion
+control**. Zenoh is not exotic in a ROS context: `rmw_zenoh` is now an official ROS 2
+middleware, so this is roughly "ROS 2 with the DDS layer swapped out".
+
+[BabyROS](https://docs.telekinesis.ai/babyros/introduction.html) (Telekinesis, Apache 2.0) is
+a small pure-Python framework on top of it that keeps the ROS shape —
+`Publisher(topic=...)`, `Subscriber(topic=..., callback=...)`, `history`/`depth` QoS — while
+carrying numpy arrays natively. `pub.publish({"msg_id": ..., "publish_time": ..., "data":
+arr})` sends the array bytes raw with an **Arrow-style JSON manifest (NDAR/NDDC)** describing
+dtype and shape. No header packing, no base64, and `compression=None` keeps the 150 MB
+uncompressed on the wire — the same deal Arrow gets, reached from the other direction.
 
 ---
 
@@ -127,35 +153,9 @@ Each folder gets `latency_boxplot`, `latency_cdf`, `latency_histogram` and
 
 ## Results
 
-Mean latency over ~100 messages per configuration.
-
-### Single 150 MB `float32` array
-
-| Configuration | UInt8MultiArray | String (Base64) | **BabyROS** | BabyROS vs best ROS 2 |
-| :--- | :--- | :--- | :--- | :--- |
-| Ethernet, X86 → X86 | 2.1086 s | 2.9777 s | **1.5900 s** | 25% faster |
-| Ethernet, X86 → Jetson | 3.5886 s | 5.0823 s | **1.5842 s** | 56% faster |
-| WiFi, X86 → X86 | 8.6934 s | 11.0463 s | **6.0422 s** | 30% faster |
-| WiFi, X86 → Jetson | 16.3764 s | 24.8816 s | **5.3616 s** | 67% faster |
-
-### Jitter (standard deviation)
-
-| Configuration | UInt8MultiArray | String (Base64) | **BabyROS** |
-| :--- | :--- | :--- | :--- |
-| Ethernet, X86 → X86 | 0.0279 s | 0.0288 s | **0.0069 s** |
-| Ethernet, X86 → Jetson | 0.1361 s | 0.1563 s | **0.0133 s** |
-| WiFi, X86 → Jetson | 4.3378 s | 5.2526 s | **0.4881 s** |
-
-Two findings stand out.
-
-**BabyROS barely notices the Jetson.** Its Ethernet latency is 1.5842 s to the Jetson Nano
-versus 1.5900 s to another X86 — statistically identical. Every ROS 2 method degrades
-sharply on ARM (UInt8MultiArray goes 2.11 s → 3.59 s, +70%), because DDS middleware cost
-scales with receiver CPU. Zenoh's lighter stack does not.
-
-**It is dramatically steadier.** On the worst link tested (WiFi to Jetson) BabyROS holds a
-0.49 s standard deviation against UInt8MultiArray's 4.34 s — roughly 9× tighter, on a
-mean that is already 3× lower.
+All measured numbers are reported in the [main README's results table](../README.md#results).
+Plots: [`analysis/`](../analysis/); per-experiment detail:
+[README_ethernet.md](../README_ethernet.md).
 
 ---
 
