@@ -83,7 +83,7 @@ Full discussion in each folder's README.
 | **Arrow IPC + TCP** | Raw TCP socket | Apache Arrow IPC (columnar) | [`arrow_ipc/`](../arrow_ipc/README.md), [`arrow_ipc_list_numpy_array/`](../arrow_ipc_list_numpy_array/README.md) |
 | **Arrow Flight (gRPC)** | gRPC / HTTP2 | Apache Arrow IPC (columnar) | [`arrow_flight/`](../arrow_flight/README.md), [`arrow_flight_list_numpy_array/`](../arrow_flight_list_numpy_array/README.md) |
 | **gRPC String (bytes)** | gRPC / HTTP2 | Protobuf `bytes` field | [`grpc_string/`](../grpc_string/README.md), [`grpc_string_list_numpy_array/`](../grpc_string_list_numpy_array/README.md) |
-| **BabyROS** | Zenoh | Raw numpy bytes + JSON manifest (NDAR/NDDC) | [`babyros/`](../babyros/README.md), [`babyros_list_numpy_array/`](../babyros_list_numpy_array/README.md) |
+| **BabyROS** | Zenoh | Raw numpy bytes + JSON manifest ([no schemas — six runtime-dispatched tags](../babyros/README.md#message-formats)) | [`babyros/`](../babyros/README.md), [`babyros_list_numpy_array/`](../babyros_list_numpy_array/README.md) |
 
 Three of the four are **server-first and point-to-point**: the receiver connects to a stream
 and the sender pushes a message every 5 s. That is a weaker guarantee than ROS 2 topics —

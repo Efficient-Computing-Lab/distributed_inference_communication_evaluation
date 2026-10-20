@@ -17,6 +17,14 @@ network port has to be up first:
     ROS 2          receiver first  no --peer, both sides share ROS_DOMAIN_ID
     BabyROS        receiver first  sender needs --peer <receiver ip>
                                    (optional, Zenoh usually finds the peer)
+
+ROS 2 methods take --transport udp|tcp (default udp, which is what the recorded
+ethernet/ and wifi/ results used). tcp runs Fast DDS's LARGE_DATA builtin
+transport: discovery stays on UDP multicast, user data goes over TCPv4. TCP
+results must go to a folder whose top level ends in _tcp, e.g.
+
+    python3 collect.py receiver uint8multiarray ethernet_tcp/x86_machines --transport tcp
+    python3 collect.py sender   uint8multiarray ethernet_tcp/x86_machines --transport tcp
 """
 
 import argparse
@@ -50,6 +58,14 @@ METHODS = {
 # whichever side opens the port must start first
 FIRST_SIDE = {"arrow_flight_env": "sender", "grpc_env": "sender"}
 
+# Fast DDS builtin transport per --transport value. Always set explicitly so a
+# leftover FASTDDS_BUILTIN_TRANSPORTS in the shell can't change a run silently.
+ROS2_TRANSPORTS = {"udp": "DEFAULT", "tcp": "LARGE_DATA"}
+
+# environment captured next to the CSVs so the transport of a run is on record
+RECORDED_ENV = ("RMW_IMPLEMENTATION", "FASTDDS_BUILTIN_TRANSPORTS",
+                "FASTRTPS_DEFAULT_PROFILES_FILE", "ROS_DOMAIN_ID")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -65,12 +81,27 @@ def main():
     parser.add_argument("--keep", action="store_true",
                         help="append to the existing CSV instead of replacing it "
                              "(normally you want a clean file)")
+    parser.add_argument("--transport", choices=sorted(ROS2_TRANSPORTS), default="udp",
+                        help="ROS 2 methods only: udp (stock Fast DDS) or tcp "
+                             "(Fast DDS LARGE_DATA, data over TCPv4)")
     args = parser.parse_args()
 
     if args.method not in METHODS:
         parser.error(f"unknown method '{args.method}'\nknown: " + ", ".join(sorted(METHODS)))
 
     env, sender_script, receiver_script, port, sender_csv, receiver_csv = METHODS[args.method]
+
+    # keep TCP and UDP results in separate folders so neither overwrites the other
+    top, _, rest = args.folder.strip("/").partition("/")
+    tcp_folder = top.endswith("_tcp")
+    if env != "ros2" and args.transport != "udp":
+        parser.error("--transport only applies to the ROS 2 methods")
+    if args.transport == "tcp" and not tcp_folder:
+        parser.error(f"--transport tcp needs a *_tcp folder, e.g. "
+                     f"{'/'.join(filter(None, [top + '_tcp', rest]))}")
+    if env == "ros2" and args.transport == "udp" and tcp_folder:
+        parser.error(f"'{args.folder}' is a TCP results folder; add --transport tcp")
+
     script = sender_script if args.role == "sender" else receiver_script
     csv_name = sender_csv if args.role == "sender" else receiver_csv
 
@@ -102,10 +133,21 @@ def main():
         if not os.path.exists(ROS_SETUP):
             sys.exit(f"ROS 2 setup not found at {ROS_SETUP} (override with ROS_SETUP=...)")
         os.environ.setdefault("ROS_DOMAIN_ID", "0")
+        os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
+        os.environ["FASTDDS_BUILTIN_TRANSPORTS"] = ROS2_TRANSPORTS[args.transport]
+        # an XML profile can turn the builtin transports off, which would
+        # override the choice above, so none is loaded for a recorded run
+        if os.environ.pop("FASTRTPS_DEFAULT_PROFILES_FILE", None):
+            print("ignoring FASTRTPS_DEFAULT_PROFILES_FILE for this run")
+        with open(os.path.join(out, f"{args.role}_env.txt"), "w") as f:
+            for name in RECORDED_ENV:
+                f.write(f"{name}={os.environ.get(name, '')}\n")
         inner = " ".join(["python3", "-u", script] + cmd_args)
         cmd = ["bash", "-c", f'source "{ROS_SETUP}" && exec {inner}']
         shown = f"python3 {script} {' '.join(cmd_args)}"
-        print(f"ROS 2 sourced, ROS_DOMAIN_ID={os.environ['ROS_DOMAIN_ID']}")
+        print(f"ROS 2 sourced, ROS_DOMAIN_ID={os.environ['ROS_DOMAIN_ID']}, "
+              f"transport={args.transport} "
+              f"(FASTDDS_BUILTIN_TRANSPORTS={os.environ['FASTDDS_BUILTIN_TRANSPORTS']})")
     else:
         python = os.path.join(CONDA_BASE, "envs", env, "bin", "python")
         if not os.access(python, os.X_OK):

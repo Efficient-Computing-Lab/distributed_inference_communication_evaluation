@@ -18,7 +18,8 @@ SHAPES = [
 ```
 
 See [`../babyros/README.md`](../babyros/README.md) for installation, the ARM/Jetson
-constraints, and the congestion-control fix — all of which apply here identically.
+constraints, the [message formats](../babyros/README.md#message-formats) and the
+congestion-control fix — all of which apply here identically.
 
 ---
 
@@ -31,11 +32,17 @@ speed — enough that String (Base64) beats it on fast links despite sending 33%
 BabyROS has no equivalent step. Its NDDC wire format carries several arrays natively:
 each array's raw bytes go into the payload back to back, and a JSON manifest records each
 one's `{shape, dtype, offset, nbytes}`. No flattening, no per-element conversion, no
-Base64 — the publisher hands numpy straight to the transport:
+Base64:
 
 ```python
 pub.publish({"msg_id": msg_id, "publish_time": publish_time, **arrays})
 ```
+
+It is not, however, a zero-copy handoff. zenoh-python's `ZBytes` accepts no buffer
+protocol, so a numpy array cannot be given to the transport directly and the payload is
+copied twice on the publisher — ~0.19 s at this size, which is essentially the whole gap
+to Arrow IPC. See [the payload copy tax](../babyros/README.md#the-payload-copy-tax); it
+applies to this payload shape identically.
 
 ---
 

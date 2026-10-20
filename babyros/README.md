@@ -37,7 +37,62 @@ a small pure-Python framework on top of it that keeps the ROS shape —
 carrying numpy arrays natively. `pub.publish({"msg_id": ..., "publish_time": ..., "data":
 arr})` sends the array bytes raw with an **Arrow-style JSON manifest (NDAR/NDDC)** describing
 dtype and shape. No header packing, no base64, and `compression=None` keeps the 150 MB
-uncompressed on the wire — the same deal Arrow gets, reached from the other direction.
+uncompressed on the wire. What it does *not* get is Arrow's zero-copy handoff: the Python
+binding forces two full passes over the payload before it reaches the socket — see
+[the payload copy tax](#the-payload-copy-tax) below.
+
+---
+
+## Message formats
+
+BabyROS has **no message definitions** — no `.msg`, no `.idl`, no `.proto`, no type
+registry. Zenoh treats payloads as opaque bytes, so BabyROS inspects the Python object at
+publish time and picks one of six wire formats, tagged by a **4-byte prefix on the Zenoh
+attachment** (`src/babyros/serializer.py`):
+
+| Tag | Accepts | Payload | Attachment |
+| :--- | :--- | :--- | :--- |
+| `JSON` | dict with no arrays/datatypes | UTF-8 JSON | `b"JSON"` |
+| `NDAR` | a bare `np.ndarray` | raw array bytes | `b"NDAR"` + `{shape, dtype}` |
+| `NDDC` | dict containing (possibly nested) arrays | each array's raw bytes, concatenated | `b"NDDC"` + `{structure, arrays:[{shape,dtype,offset,nbytes}]}` |
+| `TDDC` | `dict[str, BaseDataType]` | Arrow IPC stream, keyed by dict key | `b"TDDC"` |
+| `TDOB` | one telekinesis datatype | Arrow IPC stream | `b"TDOB"` |
+| `TDSQ` | list/tuple of telekinesis datatypes | Arrow IPC stream | `b"TDSQ"` |
+
+Dispatch is an ordered predicate list, first match wins — datatype checks run before the
+dict/numpy checks so a dict of datatypes is not misrouted to `NDDC`. Unmatched types raise
+`TypeError: No serializer for <type>`. Decoding looks up `attachment[:4]`.
+
+**Both experiments here use `NDDC`.** Arrays are lifted out of the structure and replaced
+by `{"__ndarray__": <index>}` markers, so nesting survives and the scalars stay inline in
+the manifest:
+
+```python
+pub.publish({"msg_id": 1, "publish_time": t, "data": arr})
+# → attachment: NDDC + {"structure": {"msg_id": 1, "publish_time": t,
+#                                     "data": {"__ndarray__": 0}},
+#                       "arrays": [{"shape": [6125, 6125], "dtype": "float32",
+#                                   "offset": 0, "nbytes": 150062500}]}
+# → payload:    the 150 MB of array bytes, and nothing else
+```
+
+That is why the BabyROS path has no header packing and no Base64: the bookkeeping rides in
+the attachment, not in the payload.
+
+Two constraints that matter:
+
+- **NDAR/NDDC only support arrays that round-trip through `np.frombuffer`** — plain numeric
+  dtypes in native byte order. Object arrays, structured/record dtypes and non-native
+  endianness are *not* preserved and should not be sent.
+- **`compression` applies only to the `TD*` Arrow paths.** NDAR/NDDC are always sent
+  uncompressed regardless, so `compression=None` in `publisher.py` documents the behaviour
+  rather than selecting it.
+
+Version note: these results were collected on babyros **0.1.6**. Upstream 0.1.7 leaves the
+wire format untouched — same six tags, same encodings — and changes only that
+`telekinesis-datatypes` became a hard dependency, so the `TD*` formats (unusable in 0.1.6)
+now work. Its other additions — liveliness tokens, a `babyros` CLI, transient-local
+pub/sub — are node features, not message formats.
 
 ---
 
@@ -156,6 +211,81 @@ Each folder gets `latency_boxplot`, `latency_cdf`, `latency_histogram` and
 All measured numbers are reported in the [main README's results table](../README.md#results).
 Plots: [`analysis/`](../analysis/); per-experiment detail:
 [README_ethernet.md](../README_ethernet.md).
+
+---
+
+## The payload copy tax
+
+BabyROS lands ~11% behind Arrow IPC. That gap is **not** a Zenoh transport deficit and no
+amount of Zenoh configuration closes it — it is two full copies of the payload that the
+Python binding makes unavoidable.
+
+### zenoh-python has no buffer protocol
+
+`ZBytes` is the only container Zenoh accepts for a payload, and in eclipse-zenoh 1.10.0 its
+constructor takes:
+
+```python
+class ZBytes:
+    def __new__(cls, bytes: bytearray | bytes | str | shm.ZShm | shm.ZShmMut | None = None) -> Self: ...
+```
+
+`bytes`, `bytearray`, `str`, or a shared-memory handle. **No buffer protocol** — so an
+array cannot be handed over *by reference*, and neither can a `memoryview` of one. (This
+is about zero-copy, not capability: numpy arrays are carried natively as raw payload bytes,
+as [Message formats](#message-formats) describes. They just have to be copied to get there.)
+
+```
+ZBytes(bytes)              -> ZBytes
+ZBytes(memoryview(arr))    TypeError: expected bytes/str type, found 'memoryview'
+ZBytes(arr.data)           TypeError: expected bytes/str type, found 'memoryview'
+```
+
+So BabyROS's serializer *has* to materialise `bytes` — `np.ascontiguousarray(arr).tobytes()`
+in `babyros/serializer.py`. That is not a BabyROS design choice and there is no upstream
+BabyROS fix for it; it would take buffer-protocol support in zenoh-python's `ZBytes`
+constructor. (`bytearray` costs the same copy. The `ZShm`/`ZShmMut` path is genuinely
+zero-copy but is shared memory — same-machine only, and irrelevant to the cross-machine
+runs benchmarked here.)
+
+### The cost, measured
+
+Two passes over the payload, both on the publisher, both before a byte reaches the socket:
+
+| Copy | Where | 150 MB |
+| :--- | :--- | ---: |
+| `arr.tobytes()` | BabyROS serializer, forced by the above | 0.116 s |
+| `ZBytes(payload)` | inside zenoh-python's `put()` | 0.078 s |
+| | **total** | **0.194 s** |
+
+Which is, within measurement noise, the entire gap to the winner:
+
+| | 150 MB | 99 MB (4 arrays) |
+| :--- | ---: | ---: |
+| BabyROS − Arrow IPC (measured) | 0.180 s | 0.182 s |
+| Copies above | 0.194 s | ~0.19 s |
+
+### Why tuning cannot help
+
+Over Gigabit Ethernet the wire dominates, and Zenoh already runs at line rate:
+
+| Stage, 150 MB x86 → x86 | Time | Share |
+| :--- | ---: | ---: |
+| Wire at the 118 MB/s iperf ceiling | 1.272 s | 71% |
+| Payload generation (inside the clock by design, identical for every method) | 0.191 s | 11% |
+| The two copies | 0.194 s | 11% |
+| Zenoh fragmentation / reassembly / dispatch | ~0.13 s | 7% |
+| **Measured** | **1.786 s** | |
+
+Every knob in Zenoh's
+[`DEFAULT_CONFIG.json5`](https://github.com/eclipse-zenoh/zenoh/blob/main/DEFAULT_CONFIG.json5)
+governs queueing, batching, socket buffers or thread counts — throughput and small-message
+pipelining. With the link already saturated there is no throughput to recover, and none of
+them touch a memcpy. Socket buffers in particular are a red herring here: at ~0.3 ms RTT on
+a 1 Gb/s link the bandwidth-delay product is ~40 KB, while TCP autotunes to megabytes.
+
+Removing both copies would yield ~1.59 s against Arrow IPC's measured 1.606 s. There is no
+configuration of this stack that makes BabyROS meaningfully faster on this benchmark.
 
 ---
 

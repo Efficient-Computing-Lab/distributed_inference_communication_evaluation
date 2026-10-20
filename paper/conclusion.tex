@@ -1,0 +1,115 @@
+% ============================================================================
+% Conclusion and Future Work
+% Refers to labels defined in results.tex.
+% ============================================================================
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We compared five technologies for sending large numerical arrays between machines
+over Gigabit Ethernet: Arrow IPC over TCP, Arrow Flight, BabyROS (Zenoh), gRPC, and
+ROS~2 with two message types. We used two payloads (one 150\,MB array and four arrays
+totalling 98.8\,MB) and two receivers (an x86 PC and a Jetson Nano).
+
+Arrow IPC over a raw TCP socket was the fastest technology in every configuration.
+It used 76--79\,\% of the measured TCP goodput and came within 0.12--0.14\,s of the
+time needed just to generate the arrays and move them over the wire. Arrow Flight
+followed closely (3.5--6.9\,\% slower) and adds a managed client/server interface.
+BabyROS was 8.0--16.7\,\% slower than Arrow IPC and was the fastest option that
+provides publish/subscribe with discovery. Its gap comes from payload copies forced by
+the Python Zenoh binding, not from the Zenoh transport itself. Plain gRPC was
+31--35\,\% slower than Arrow IPC. Since Arrow Flight also runs on gRPC, this shows
+that how the payload is serialized matters more than the transport underneath.
+
+ROS~2 was the slowest technology overall, and it was the only one sensitive to the
+receiver hardware. With the Jetson Nano as receiver, the non-ROS technologies slowed
+down by at most 3.7\,\%, while ROS~2 slowed down by 28--71\,\%. That penalty grew at
+a nearly constant 9.3--10.5\,ms per MB of message, which points to a per-byte cost in the
+ROS~2 receive path on the embedded board. The best ROS~2 message type was
+1.3--1.9$\times$ slower than Arrow IPC on the x86 receiver and 2.2--3.0$\times$ slower
+on the Jetson Nano. Within ROS~2, the better message type depended on how the message
+was built. \texttt{UInt8MultiArray} was faster when the bytes were assigned directly
+and slower when they first passed through a Python list. The overhead of converting
+Python data therefore needs as much attention as the choice of message type.
+
+Based on these results, we recommend:
+\begin{itemize}
+  \item \textbf{Arrow IPC over TCP} for minimum latency on point-to-point links.
+  \item \textbf{Arrow Flight} when a managed service or several clients are needed.
+  \item \textbf{BabyROS} when publish/subscribe semantics are required without DDS.
+  \item \textbf{ROS~2}, where it must be used, with \texttt{UInt8MultiArray} and
+  direct \texttt{bytes} assignment. It should be avoided for large payloads sent to
+  constrained receivers such as the Jetson Nano.
+\end{itemize}
+
+% ============================================================================
+\section{Future Work}
+\label{sec:future-work}
+
+Our main next step is to apply these findings to distributed inference, in which a
+neural network is partitioned into components that run on different devices. The
+directions below support that goal.
+
+\paragraph{Containerized communication for partitioned models.} When a model is
+partitioned, the intermediate tensors produced by one component must reach the next
+component, often on different hardware. The four-array payload in this study already
+mimics such tensors. We plan to develop containerized environments that package each
+model component together with its communication layer. Such environments would
+automate the communication between components across heterogeneous hardware, such as
+x86 servers and Jetson boards.
+
+Containers would also address a practical problem we met in this study. The Jetson
+Nano's operating system (glibc 2.27, Python 3.6) is too old for BabyROS, which had to
+be run inside a container. Building on the measurements reported here, the environment
+could select the transport for each link. It could use Arrow IPC for point-to-point
+connections and BabyROS where one component feeds several others. It would also let
+us measure the end-to-end latency of a complete partitioned pipeline, not just
+isolated transfers.
+
+\paragraph{Closing the ROS~2 gap on its own terms.} The ROS~2 results reflect one
+default configuration and one implementation, so several follow-up measurements are
+needed:
+\begin{itemize}
+  \item Re-run the four-array \texttt{UInt8MultiArray} experiment with direct
+  \texttt{bytes} assignment. This would separate the cost of the message type from the
+  cost of the Python list conversion.
+  \item Evaluate the tuned Fast DDS profile (asynchronous publishing, large socket
+  buffers), which was prepared but not used.
+  \item Test other ROS~2 middleware implementations, such as Cyclone DDS and the
+  Zenoh-based \texttt{rmw\_zenoh}. The latter would show how much of BabyROS's
+  advantage survives inside ROS~2.
+  \item Repeat the ROS~2 experiments with C++ nodes (\texttt{rclcpp}) and loaned
+  messages. This would separate the cost of the Python client library from that of
+  the DDS layer.
+\end{itemize}
+
+\paragraph{Locating the embedded-receiver penalty.} The constant per-MB cost of ROS~2
+on the Jetson Nano calls for profiling of the receive path: CPU load, memory copies,
+and the time spent reassembling DDS fragments versus deserializing into Python. We
+also plan to repeat the experiments on newer embedded boards (e.g.\ Jetson Orin) to
+see whether the penalty shrinks with hardware or is inherent to the software stack.
+
+\paragraph{Zero-copy transfers in BabyROS.} The copies imposed by the Python
+\texttt{ZBytes} container account for most of BabyROS's gap to Arrow IPC. Two options
+could remove them: buffer-protocol support in the Zenoh Python binding, or Zenoh's
+shared-memory buffers. Either would test whether a publish/subscribe design can match
+point-to-point Arrow IPC.
+
+\paragraph{Refining the methodology.} In the current metric, the receive timestamp is
+taken before application-level decoding. Future measurements should stop the clock
+only once a usable array exists on the receiver, so that every method is charged for
+the same work. They should also use round-trip timing or PTP-synchronised clocks to
+remove any dependence on clock offset. Finally, recording CPU, memory and energy use
+on the receiver would capture costs that latency alone does not show, which matters
+most on embedded devices.
+
+\paragraph{Broadening the workload.} All experiments sent one message every 5\,s to a
+single receiver over Gigabit Ethernet. Future work should cover:
+\begin{itemize}
+  \item Continuous streaming at higher rates, to measure sustained throughput,
+  back-pressure and message loss.
+  \item A sweep of payload sizes, to fit a latency model with a fixed cost plus a
+  per-MB cost for each technology.
+  \item Several subscribers, where publish/subscribe designs should pay off.
+  \item Other links, such as 10\,GbE and wireless networks.
+\end{itemize}

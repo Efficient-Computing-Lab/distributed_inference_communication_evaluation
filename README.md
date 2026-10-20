@@ -46,7 +46,11 @@ corresponding `*_list_numpy_array/` folder.
 
 - Arrow IPC + TCP achieved the best overall transfer performance.
 - Arrow Flight provided similar performance with a managed client/server interface.
-- BabyROS/Zenoh performed well when pub/sub semantics were required.
+- BabyROS/Zenoh performed well when pub/sub semantics were required. Its ~11% deficit to
+  Arrow IPC is not a Zenoh transport limit but two payload copies forced by zenoh-python's
+  `ZBytes`. Arrays *are* carried natively as raw bytes; what is missing is a zero-copy
+  handoff, since `ZBytes` accepts no buffer protocol and so must be given a materialised
+  `bytes` object — see [the payload copy tax](babyros/README.md#the-payload-copy-tax).
 - ROS 2 showed substantially larger overhead on the Jetson Nano.
 - The tested UInt8MultiArray concatenation strategy performed poorly for multiple arrays.
 
@@ -122,6 +126,36 @@ uses it; to enable it, export the path on **both** sides before launching:
 ```bash
 export FASTRTPS_DEFAULT_PROFILES_FILE=$PWD/custom_fast_dds.xml
 ```
+
+#### ROS 2 over TCP
+
+All recorded ROS 2 results use stock Fast DDS, which carries data as RTPS over **UDPv4**.
+To repeat them over **TCP**, switch Fast DDS to its `LARGE_DATA` builtin transport on
+**both** machines. Discovery stays on UDP multicast, so no addresses need configuring, but
+every sample travels over a TCPv4 connection. Results go to `ethernet_tcp/` so the UDP
+results in `ethernet/` are never overwritten:
+
+```bash
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA   # on both machines
+unset FASTRTPS_DEFAULT_PROFILES_FILE           # a profile could override it
+
+cd uint8multiarray      # and the other three ROS 2 folders
+python3 subscriber.py --folder ethernet_tcp/x86_machines   # receiver
+python3 publisher.py  --folder ethernet_tcp/x86_machines   # sender
+```
+
+`collect.py` does the same with `--transport tcp`. It also writes `sender_env.txt` /
+`receiver_env.txt` next to the CSVs to record the transport, and it refuses to write TCP
+results outside a `*_tcp` folder:
+
+```bash
+python3 collect.py receiver uint8multiarray ethernet_tcp/x86_machines --transport tcp
+python3 collect.py sender   uint8multiarray ethernet_tcp/x86_machines --transport tcp
+```
+
+To confirm a run really used TCP, `ss -tnp | grep python3` on either machine should show an
+established connection while messages are flowing.
 
 ### Arrow IPC + TCP, Arrow Flight, gRPC
 

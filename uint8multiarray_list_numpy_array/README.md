@@ -62,11 +62,21 @@ python3 subscriber.py --folder ethernet/diff_machines  # Jetson Nano
 python3 publisher.py  --folder ethernet/diff_machines  # sending X86
 ```
 
+**Over TCP instead of UDP** (on both machines; see
+[ROS 2 over TCP](../README.md#ros-2-over-tcp)):
+
+```bash
+export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
+python3 subscriber.py --folder ethernet_tcp/x86_machines   # receiving X86
+python3 publisher.py  --folder ethernet_tcp/x86_machines   # sending X86
+```
+
 ### Folder naming
 
 `--folder` encodes the machine pair: `ethernet/x86_machines` for X86 → X86 and
 `ethernet/diff_machines` for X86 → Jetson Nano. Use these exact names to extend the existing
-results — every method uses the same two.
+results — every method uses the same two. TCP runs use the same names under
+`ethernet_tcp/`.
 
 ## Results
 
