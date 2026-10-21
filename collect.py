@@ -64,7 +64,7 @@ ROS2_TRANSPORTS = {"udp": "DEFAULT", "tcp": "LARGE_DATA"}
 
 # environment captured next to the CSVs so the transport of a run is on record
 RECORDED_ENV = ("RMW_IMPLEMENTATION", "FASTDDS_BUILTIN_TRANSPORTS",
-                "FASTRTPS_DEFAULT_PROFILES_FILE", "ROS_DOMAIN_ID")
+                "FASTRTPS_DEFAULT_PROFILES_FILE", "ROS_DOMAIN_ID", "ROS_STATIC_PEERS")
 
 
 def main():
@@ -77,7 +77,8 @@ def main():
     parser.add_argument("folder", help="results folder, e.g. ethernet/x86_machines")
     parser.add_argument("--peer", default=None,
                         help="the other machine's IP — needed by the receiver for "
-                             "Arrow/gRPC, by the sender for BabyROS")
+                             "Arrow/gRPC, by the sender for BabyROS; optional for "
+                             "ROS 2 (unicast discovery via ROS_STATIC_PEERS)")
     parser.add_argument("--keep", action="store_true",
                         help="append to the existing CSV instead of replacing it "
                              "(normally you want a clean file)")
@@ -135,6 +136,9 @@ def main():
         os.environ.setdefault("ROS_DOMAIN_ID", "0")
         os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
         os.environ["FASTDDS_BUILTIN_TRANSPORTS"] = ROS2_TRANSPORTS[args.transport]
+        # unicast discovery for when multicast doesn't get through (e.g. Docker hosts)
+        if args.peer:
+            os.environ["ROS_STATIC_PEERS"] = args.peer
         # an XML profile can turn the builtin transports off, which would
         # override the choice above, so none is loaded for a recorded run
         if os.environ.pop("FASTRTPS_DEFAULT_PROFILES_FILE", None):
