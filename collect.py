@@ -19,12 +19,14 @@ network port has to be up first:
                                    (optional, Zenoh usually finds the peer)
 
 ROS 2 methods take --transport udp|tcp (default udp, which is what the recorded
-ethernet/ and wifi/ results used). tcp runs Fast DDS's LARGE_DATA builtin
-transport: discovery stays on UDP multicast, user data goes over TCPv4. TCP
-results must go to a folder whose top level ends in _tcp, e.g.
+ethernet/ and wifi/ results used). tcp loads the pure-TCP Fast DDS profiles in
+fastdds_tcp/ (discovery and data over one TCP connection, no UDP): the receiver
+listens on port 5100, the sender connects to --peer. The profile actually used,
+with the peer filled in, is saved next to the CSVs. TCP results must go to a
+folder whose top level ends in _tcp, e.g.
 
     python3 collect.py receiver uint8multiarray ethernet_tcp/x86_machines --transport tcp
-    python3 collect.py sender   uint8multiarray ethernet_tcp/x86_machines --transport tcp
+    python3 collect.py sender   uint8multiarray ethernet_tcp/x86_machines --transport tcp --peer <receiver ip>
 """
 
 import argparse
@@ -58,9 +60,18 @@ METHODS = {
 # whichever side opens the port must start first
 FIRST_SIDE = {"arrow_flight_env": "sender", "grpc_env": "sender"}
 
-# Fast DDS builtin transport per --transport value. Always set explicitly so a
-# leftover FASTDDS_BUILTIN_TRANSPORTS in the shell can't change a run silently.
-ROS2_TRANSPORTS = {"udp": "DEFAULT", "tcp": "LARGE_DATA"}
+ROS2_TRANSPORTS = ("udp", "tcp")
+
+# Pure-TCP Fast DDS profiles for --transport tcp, per role. The sender's names the
+# receiver's address, which is replaced with --peer.
+TCP_PROFILES = {"receiver": "fastdds_tcp/receiver_tcp.xml",
+                "sender": "fastdds_tcp/sender_tcp.xml"}
+TCP_PEER_ADDRESS = "<address>147.102.19.151</address>"
+
+# The profiles ask for 256 MB socket buffers; Linux silently clamps them to these
+# limits, which would bring back the deadlock the large buffers avoid.
+TCP_BUFFER_BYTES = 268435456
+SOCKET_LIMITS = ("/proc/sys/net/core/wmem_max", "/proc/sys/net/core/rmem_max")
 
 # environment captured next to the CSVs so the transport of a run is on record
 RECORDED_ENV = ("RMW_IMPLEMENTATION", "FASTDDS_BUILTIN_TRANSPORTS",
@@ -82,9 +93,9 @@ def main():
     parser.add_argument("--keep", action="store_true",
                         help="append to the existing CSV instead of replacing it "
                              "(normally you want a clean file)")
-    parser.add_argument("--transport", choices=sorted(ROS2_TRANSPORTS), default="udp",
+    parser.add_argument("--transport", choices=ROS2_TRANSPORTS, default="udp",
                         help="ROS 2 methods only: udp (stock Fast DDS) or tcp "
-                             "(Fast DDS LARGE_DATA, data over TCPv4)")
+                             "(pure-TCP profiles in fastdds_tcp/; the sender needs --peer)")
     args = parser.parse_args()
 
     if args.method not in METHODS:
@@ -102,6 +113,15 @@ def main():
                      f"{'/'.join(filter(None, [top + '_tcp', rest]))}")
     if env == "ros2" and args.transport == "udp" and tcp_folder:
         parser.error(f"'{args.folder}' is a TCP results folder; add --transport tcp")
+    if args.transport == "tcp":
+        if args.role == "sender" and not args.peer:
+            parser.error("--transport tcp: the sender needs --peer <receiver ip>")
+        for path in SOCKET_LIMITS:
+            with open(path) as f:
+                if int(f.read()) < TCP_BUFFER_BYTES:
+                    sys.exit(f"{path} is below {TCP_BUFFER_BYTES}; raise it on this host first:\n"
+                             f"  sudo sysctl -w net.core.wmem_max={TCP_BUFFER_BYTES} "
+                             f"net.core.rmem_max={TCP_BUFFER_BYTES}")
 
     script = sender_script if args.role == "sender" else receiver_script
     csv_name = sender_csv if args.role == "sender" else receiver_csv
@@ -135,23 +155,37 @@ def main():
             sys.exit(f"ROS 2 setup not found at {ROS_SETUP} (override with ROS_SETUP=...)")
         os.environ.setdefault("ROS_DOMAIN_ID", "0")
         os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
-        os.environ["FASTDDS_BUILTIN_TRANSPORTS"] = ROS2_TRANSPORTS[args.transport]
-        # unicast discovery for when multicast doesn't get through (e.g. Docker hosts)
-        if args.peer:
-            os.environ["ROS_STATIC_PEERS"] = args.peer
-        # an XML profile can turn the builtin transports off, which would
-        # override the choice above, so none is loaded for a recorded run
+        # a profile or builtin-transport setting left in the shell must not change
+        # a recorded run, so only what is set below applies
         if os.environ.pop("FASTRTPS_DEFAULT_PROFILES_FILE", None):
-            print("ignoring FASTRTPS_DEFAULT_PROFILES_FILE for this run")
+            print("ignoring FASTRTPS_DEFAULT_PROFILES_FILE from the shell")
+        os.environ.pop("ROS_STATIC_PEERS", None)
+        if args.transport == "udp":
+            os.environ["FASTDDS_BUILTIN_TRANSPORTS"] = "DEFAULT"
+            # unicast discovery for when multicast doesn't get through (e.g. Docker hosts)
+            if args.peer:
+                os.environ["ROS_STATIC_PEERS"] = args.peer
+        else:
+            # the profile disables the builtin transports itself
+            os.environ.pop("FASTDDS_BUILTIN_TRANSPORTS", None)
+            with open(os.path.join(root, TCP_PROFILES[args.role])) as f:
+                profile = f.read()
+            if args.role == "sender":
+                profile = profile.replace(TCP_PEER_ADDRESS, f"<address>{args.peer}</address>")
+            profile_path = os.path.join(out, f"{args.role}_fastdds_tcp.xml")
+            with open(profile_path, "w") as f:
+                f.write(profile)
+            os.environ["FASTRTPS_DEFAULT_PROFILES_FILE"] = profile_path
         with open(os.path.join(out, f"{args.role}_env.txt"), "w") as f:
             for name in RECORDED_ENV:
                 f.write(f"{name}={os.environ.get(name, '')}\n")
         inner = " ".join(["python3", "-u", script] + cmd_args)
         cmd = ["bash", "-c", f'source "{ROS_SETUP}" && exec {inner}']
         shown = f"python3 {script} {' '.join(cmd_args)}"
+        detail = (f"profile {os.path.relpath(os.environ['FASTRTPS_DEFAULT_PROFILES_FILE'], root)}"
+                  if args.transport == "tcp" else "stock Fast DDS")
         print(f"ROS 2 sourced, ROS_DOMAIN_ID={os.environ['ROS_DOMAIN_ID']}, "
-              f"transport={args.transport} "
-              f"(FASTDDS_BUILTIN_TRANSPORTS={os.environ['FASTDDS_BUILTIN_TRANSPORTS']})")
+              f"transport={args.transport} ({detail})")
     else:
         python = os.path.join(CONDA_BASE, "envs", env, "bin", "python")
         if not os.access(python, os.X_OK):

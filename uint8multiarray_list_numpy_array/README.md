@@ -62,13 +62,13 @@ python3 subscriber.py --folder ethernet/diff_machines  # Jetson Nano
 python3 publisher.py  --folder ethernet/diff_machines  # sending X86
 ```
 
-**Over TCP instead of UDP** (on both machines; see
-[ROS 2 over TCP](../README.md#ros-2-over-tcp)):
+**Over TCP instead of UDP.** Fast DDS over TCP does not handle these payloads; see
+[ROS 2 over TCP](../README.md#ros-2-over-tcp) for the measurements. To reproduce, from the
+repo root:
 
 ```bash
-export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
-python3 subscriber.py --folder ethernet_tcp/x86_machines   # receiving X86
-python3 publisher.py  --folder ethernet_tcp/x86_machines   # sending X86
+python3 collect.py receiver uint8multiarray_list_numpy_array ethernet_tcp/diff_machines --transport tcp
+python3 collect.py sender   uint8multiarray_list_numpy_array ethernet_tcp/diff_machines --transport tcp --peer <receiver ip>
 ```
 
 ### Folder naming

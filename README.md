@@ -1,8 +1,13 @@
-# Large-Data Communication Benchmark
+# Communication Latency over TCP/IP for Distributed Inference Systems.
 
-How fast can a machine transmit a large numerical array to another machine? This repository
-includes six transmission methods, two ROS 2 message types and four non-ROS transports. The network has sending
+This repository contains an evaluation of  four different data transport mechanisms for transferring large data payloads between edge devices to identify the mechanism that achieves the lowest communication latency. The network has sending
 Gigabit speed and we use two PCs and a Jetson Nano.
+
+The main technologies that we use are:
+* ROS2
+* Apache Arrow
+* gRPC
+* BabyROS
 
 Tested methods — each folder's README describes the technology, what it sends, and how to
 run it:
@@ -130,32 +135,45 @@ export FASTRTPS_DEFAULT_PROFILES_FILE=$PWD/custom_fast_dds.xml
 #### ROS 2 over TCP
 
 All recorded ROS 2 results use stock Fast DDS, which carries data as RTPS over **UDPv4**.
-To repeat them over **TCP**, switch Fast DDS to its `LARGE_DATA` builtin transport on
-**both** machines. Discovery stays on UDP multicast, so no addresses need configuring, but
-every sample travels over a TCPv4 connection. Results go to `ethernet_tcp/` so the UDP
-results in `ethernet/` are never overwritten:
+Fast DDS over **TCP** does not handle these 150 MB samples. Tested laptop → Jetson
+Nano, `uint8multiarray`, RELIABLE QoS:
+
+| Fast DDS TCP setup | Result |
+| :--- | :--- |
+| `LARGE_DATA` builtin transport | connection deadlocks after ~90 MB, nothing delivered |
+| pure-TCP profile, default socket buffers | same deadlock |
+| pure-TCP profile, `non_blocking_send` | sends are dropped, nothing delivered |
+| pure-TCP profile, 256 MB socket buffers | delivered, but latency grows without bound (14 s, 57 s) |
+
+The last setup is kept in [`fastdds_tcp/`](fastdds_tcp/) so the result can be reproduced.
+`collect.py --transport tcp` loads it: the receiver listens on TCP port 5100, the sender
+connects to `--peer`, and discovery and data share that one connection (no UDP). The
+profile actually used is saved next to the CSVs, along with `sender_env.txt` /
+`receiver_env.txt`. Results must go to a `*_tcp` folder so the UDP results in `ethernet/`
+are never overwritten. The 256 MB buffers need the kernel limit raised on **both** hosts
+first, which `collect.py` checks:
 
 ```bash
-export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA   # on both machines
-unset FASTRTPS_DEFAULT_PROFILES_FILE           # a profile could override it
+sudo sysctl -w net.core.wmem_max=268435456 net.core.rmem_max=268435456
 
-cd uint8multiarray      # and the other three ROS 2 folders
-python3 subscriber.py --folder ethernet_tcp/x86_machines   # receiver
-python3 publisher.py  --folder ethernet_tcp/x86_machines   # sender
-```
-
-`collect.py` does the same with `--transport tcp`. It also writes `sender_env.txt` /
-`receiver_env.txt` next to the CSVs to record the transport, and it refuses to write TCP
-results outside a `*_tcp` folder:
-
-```bash
-python3 collect.py receiver uint8multiarray ethernet_tcp/x86_machines --transport tcp
-python3 collect.py sender   uint8multiarray ethernet_tcp/x86_machines --transport tcp
+python3 collect.py receiver uint8multiarray ethernet_tcp/diff_machines --transport tcp
+python3 collect.py sender   uint8multiarray ethernet_tcp/diff_machines --transport tcp --peer <receiver ip>
 ```
 
 To confirm a run really used TCP, `ss -tnp | grep python3` on either machine should show an
 established connection while messages are flowing.
+
+Machines without a native Jazzy install (the Jetson Nano runs Ubuntu 18.04) can use the
+official `ros:jazzy-ros-base` image. `run_ros_container.sh` starts it with host networking and
+the repo mounted, as your own user, so result files are not owned by root:
+
+```bash
+./run_ros_container.sh          # sudo ./run_ros_container.sh where docker needs sudo
+```
+
+For UDP runs, if multicast discovery doesn't reach the other machine, pass
+`--peer <other machine's IP>` to `collect.py` on both sides for unicast discovery
+(`ROS_STATIC_PEERS`).
 
 ### Arrow IPC + TCP, Arrow Flight, gRPC
 

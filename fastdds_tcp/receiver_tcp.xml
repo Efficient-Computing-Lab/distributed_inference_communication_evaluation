@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fast DDS pure-TCP profile, RECEIVER side (subscriber machine). Listens on TCP
+  port 5100; the sender connects to it with sender_tcp.xml. No UDP at all:
+  discovery and data both go over this one TCP connection.
+
+  Tested 2026-10-21, laptop -> Jetson Nano, uint8multiarray (150 MB samples),
+  ros:jazzy-ros-base container, RELIABLE QoS:
+    - with default socket buffers the connection deadlocked after ~90 MB;
+    - with the 256 MB buffers below, messages arrive but RTPS retransmissions
+      pile up in the TCP queue and latency grows without bound (13.9 s, 57.4 s).
+  Not usable for benchmarking as is; kept to reproduce that result.
+
+  The buffer sizes are capped by the kernel. Raise the limit on both hosts first,
+  or Linux silently clamps them to ~208 KB:
+      sudo sysctl -w net.core.wmem_max=268435456 net.core.rmem_max=268435456
+
+  Use on the receiving machine, before starting the subscriber:
+      export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      export FASTRTPS_DEFAULT_PROFILES_FILE=$PWD/fastdds_tcp/receiver_tcp.xml
+-->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>tcp</transport_id>
+      <type>TCPv4</type>
+      <sendBufferSize>268435456</sendBufferSize>
+      <receiveBufferSize>268435456</receiveBufferSize>
+      <listening_ports><port>5100</port></listening_ports>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="tcp_participant" is_default_profile="true">
+    <rtps>
+      <userTransports><transport_id>tcp</transport_id></userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+    </rtps>
+  </participant>
+</profiles>
